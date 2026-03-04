@@ -1,0 +1,24 @@
+import SwiftUI
+import ComposableArchitecture
+import Dependencies
+
+public struct Live{{ name }}FeatureBuilder: {{ name }}FeatureBuildable, Sendable {
+    public init() {}
+
+    @MainActor
+    public func build() -> AnyView {
+        AnyView(
+            {{ name }}FeatureView(
+                store: Store(initialState: {{ name }}Feature.State()) {
+                    {{ name }}Feature()
+                }
+            )
+        )
+    }
+}
+
+public extension DependencyValues {
+    mutating func use{{ name }}FeatureLiveImplementation() {
+        self.{{ name | lowerFirstWord }}FeatureBuilder = Live{{ name }}FeatureBuilder()
+    }
+}

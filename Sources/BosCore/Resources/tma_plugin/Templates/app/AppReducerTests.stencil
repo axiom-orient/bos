@@ -1,0 +1,23 @@
+import Testing
+import ComposableArchitecture
+@testable import {{ name }}
+
+@Suite("AppReducer Tests")
+struct AppReducerTests {
+    @Test("Initial state is splash")
+    func initialState() {
+        let state = AppReducer.State()
+        #expect(state.rootViewState == .splash)
+    }
+
+    @Test("Retry cold start resets root state to splash")
+    func retryColdStartResetsState() {
+        let reducer = AppReducer()
+        var state = AppReducer.State()
+        state.rootViewState = .error(message: "temporary")
+
+        _ = reducer.reduce(into: &state, action: .view(.retryColdStart))
+
+        #expect(state.rootViewState == .splash)
+    }
+}

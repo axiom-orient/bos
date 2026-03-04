@@ -1,0 +1,51 @@
+import SwiftUI
+
+struct MaintenanceView: View {
+    let message: String
+    var onRefresh: (() -> Void)? = nil
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            Image(systemName: "wrench.and.screwdriver.fill")
+                .font(.system(size: 60))
+                .foregroundStyle(.secondary)
+
+            Text("Maintenance")
+                .font(.title2)
+                .bold()
+
+            Text(message.isEmpty ? "Please try again shortly." : message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+
+            Spacer()
+
+            if let onRefresh {
+                Button(action: onRefresh) {
+                    Text("Retry")
+                        .bold()
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.secondary.opacity(0.2))
+                        .foregroundStyle(.primary)
+                        .cornerRadius(12)
+                }
+                .padding(.horizontal, 40)
+                .padding(.bottom, 40)
+            }
+        }
+    }
+}
+
+#if DEBUG
+#Preview {
+    MaintenanceView(
+        message: "Service maintenance in progress.",
+        onRefresh: {}
+    )
+}
+#endif

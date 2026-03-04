@@ -1,0 +1,1271 @@
+import Foundation
+import BosCore
+import Yams
+import os
+
+enum ExitCode: Int32 {
+    case success = 0
+    case contractValidationError = 2
+    case driftDetected = 3
+    case verifyFailed = 4
+    case releaseInitFailed = 5
+    case doctorFailed = 6
+}
+
+enum OutputFormat: String {
+    case human
+    case json
+}
+
+enum DoctorScope: String {
+    case core
+    case all
+    case plan
+    case apply
+    case verify
+    case releaseInit = "release-init"
+
+    var commands: [String] {
+        switch self {
+        case .core:
+            return ToolchainLockV2.coreCommands
+        case .all:
+            return ToolchainLockV2.allCommands
+        case .plan:
+            return [ToolchainLockV2.commandPlan]
+        case .apply:
+            return [ToolchainLockV2.commandApply]
+        case .verify:
+            return [ToolchainLockV2.commandVerify]
+        case .releaseInit:
+            return [ToolchainLockV2.commandReleaseInit]
+        }
+    }
+}
+
+struct DoctorInstallAttempt: Codable {
+    let tool: String
+    let command: String
+    let status: String
+    let exitCode: Int32
+    let stderr: String
+}
+
+struct DoctorCommandOutputV2: Codable {
+    let command: String
+    let status: String
+    let exitCode: Int
+    let summary: String
+    let scope: String
+    let findings: [DoctorFinding]
+    let installAttempts: [DoctorInstallAttempt]
+    let artifacts: [String]
+}
+
+enum BosCommand: String, CaseIterable {
+    case doctor
+    case plan
+    case apply
+    case verify
+    case releaseInit = "release-init"
+
+    var summary: String {
+        switch self {
+        case .doctor:
+            return "환경/버전/필수 도구 체크"
+        case .plan:
+            return "PRD -> blueprint 변환"
+        case .apply:
+            return "scaffold 생성 + 정책 패치 적용"
+        case .verify:
+            return "tuist/xcodebuild 검증 게이트 실행"
+        case .releaseInit:
+            return "fastlane 파일/기본 lane 생성"
+        }
+    }
+
+    var usage: String {
+        switch self {
+        case .doctor:
+            return "bos doctor [--for core|all|plan|apply|verify|release-init] [--install] [--init-lock] [--project-root <path>] [--format human|json] [--verbose]"
+        case .plan:
+            return "bos plan (--prd <path> | --plan-dir <path>) [--profile <path>] --out <blueprint.yaml> [--app-identifier <id>] [--apple-team-id <team>] [--project-root <path>] [--format human|json] [--verbose]"
+        case .apply:
+            return "bos apply --blueprint <path> [--profile <path>] [--mode init|incremental] [--fix] [--dry-run] [--project-root <path>] [--format human|json] [--verbose]"
+        case .verify:
+            return "bos verify [--profile <path>] [--project-root <path>] [--format human|json] [--verbose]"
+        case .releaseInit:
+            return "bos release-init --blueprint <path> [--profile <path>] [--project-root <path>] [--format human|json] [--verbose]"
+        }
+    }
+}
+
+func printRootHelp() {
+    let commandList = BosCommand.allCases
+        .map { "  \($0.rawValue) - \($0.summary)" }
+        .joined(separator: "\n")
+
+    let help = """
+    bos v1 (Swift CLI-only)
+
+    Usage:
+      bos <command> [options]
+      bos <command> --help
+
+    Commands:
+    \(commandList)
+
+    Global Flags:
+      --project-root <path>
+      --format human|json   (default: human)
+      --verbose
+      -h, --help
+
+    Primary Path:
+      bos doctor
+      bos plan
+      bos apply --mode init
+      bos verify
+      bos release-init
+    """
+
+    print(help)
+}
+
+func printCommandHelp(_ command: BosCommand) {
+    let help = """
+    Command: \(command.rawValue)
+    Summary: \(command.summary)
+
+    Usage:
+      \(command.usage)
+    """
+
+    print(help)
+}
+
+struct ParsedOptions {
+    var values: [String: String] = [:]
+    var flags: Set<String> = []
+    var missingValueFlags: [String] = []
+    var unknownFlags: [String] = []
+    var positional: [String] = []
+}
+
+func parseOptions(
+    args: [String],
+    valueFlags: Set<String>,
+    booleanFlags: Set<String>
+) -> ParsedOptions {
+    var parsed = ParsedOptions()
+    var index = 0
+    while index < args.count {
+        let token = args[index]
+        if token.hasPrefix("--") {
+            if valueFlags.contains(token) {
+                let nextIndex = index + 1
+                guard nextIndex < args.count, !args[nextIndex].hasPrefix("--") else {
+                    parsed.missingValueFlags.append(token)
+                    index += 1
+                    continue
+                }
+                parsed.values[token] = args[nextIndex]
+                index += 2
+                continue
+            }
+            if booleanFlags.contains(token) {
+                parsed.flags.insert(token)
+                index += 1
+                continue
+            }
+            parsed.unknownFlags.append(token)
+            index += 1
+            continue
+        }
+
+        parsed.positional.append(token)
+        index += 1
+    }
+    return parsed
+}
+
+func assertOptionContract(
+    parsed: ParsedOptions,
+    command: BosCommand,
+    format: OutputFormat
+) {
+    if !parsed.missingValueFlags.isEmpty {
+        fail(
+            message: "missing value for flag(s): \(parsed.missingValueFlags.joined(separator: ", "))",
+            command: command,
+            format: format
+        )
+    }
+    if !parsed.unknownFlags.isEmpty {
+        fail(
+            message: "unknown flag(s): \(parsed.unknownFlags.joined(separator: ", "))",
+            command: command,
+            format: format
+        )
+    }
+    if !parsed.positional.isEmpty {
+        fail(
+            message: "unexpected argument(s): \(parsed.positional.joined(separator: " "))",
+            command: command,
+            format: format
+        )
+    }
+}
+
+func parseOutputFormat(from args: [String]) -> OutputFormat {
+    guard let index = args.firstIndex(of: "--format") else {
+        return .human
+    }
+    let valueIndex = args.index(after: index)
+    guard valueIndex < args.endIndex else {
+        return .human
+    }
+    return OutputFormat(rawValue: args[valueIndex].lowercased()) ?? .human
+}
+
+func currentWorkingDirectoryURL() -> URL {
+    URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+}
+
+func resolvePath(_ raw: String, base: URL) -> URL {
+    let expanded = NSString(string: raw).expandingTildeInPath
+    if expanded.hasPrefix("/") {
+        return URL(fileURLWithPath: expanded)
+    }
+    return base.appending(path: expanded)
+}
+
+func defaultProfilePath(projectRoot: URL) -> URL {
+    projectRoot.appending(path: ".bos/config/profile.yaml")
+}
+
+func resolveProfilePathOrFail(
+    raw: String?,
+    projectRoot: URL,
+    command: BosCommand,
+    format: OutputFormat
+) -> URL {
+    if let raw {
+        return resolvePath(raw, base: projectRoot)
+    }
+
+    let fallback = defaultProfilePath(projectRoot: projectRoot)
+    if FileManager.default.fileExists(atPath: fallback.path(percentEncoded: false)) {
+        return fallback
+    }
+
+    fail(
+        message: "profile file not found. pass --profile <path> or place profile at .bos/config/profile.yaml",
+        command: command,
+        format: format
+    )
+}
+
+func resolveToolchainLockPath(projectRoot: URL) -> URL? {
+    let fm = FileManager.default
+    let preferred = projectRoot.appending(path: ".bos/config/toolchain.lock.yaml")
+    if fm.fileExists(atPath: preferred.path(percentEncoded: false)) {
+        return preferred
+    }
+
+    // Backward compatibility for previously generated projects.
+    let legacy = projectRoot.appending(path: "toolchain.lock.yaml")
+    if fm.fileExists(atPath: legacy.path(percentEncoded: false)) {
+        return legacy
+    }
+    return nil
+}
+
+func preferredToolchainLockPath(projectRoot: URL) -> URL {
+    projectRoot.appending(path: ".bos/config/toolchain.lock.yaml")
+}
+
+func decodeToolchainLockV2WithCompatibility(at path: URL) throws -> ToolchainLockV2 {
+    struct SchemaProbe: Decodable {
+        let schemaVersion: Int
+    }
+
+    let text = try readTextFile(path)
+    let decoder = YAMLDecoder()
+    let probe: SchemaProbe
+    do {
+        probe = try decoder.decode(SchemaProbe.self, from: text)
+    } catch {
+        throw NSError(
+            domain: "BosCLI.Decode",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "failed to decode schemaVersion from \(path.path(percentEncoded: false)): \(error)"]
+        )
+    }
+
+    switch probe.schemaVersion {
+    case 2:
+        return try decoder.decode(ToolchainLockV2.self, from: text)
+    case 1:
+        let legacy = try decoder.decode(ToolchainLockV1.self, from: text)
+        return try legacy.asToolchainLockV2()
+    default:
+        throw NSError(
+            domain: "BosCLI.Decode",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "unsupported toolchain lock schemaVersion \(probe.schemaVersion)"]
+        )
+    }
+}
+
+func readTextFile(_ path: URL) throws -> String {
+    try String(contentsOf: path, encoding: .utf8)
+}
+
+func writeTextFile(_ text: String, to path: URL) throws {
+    let fm = FileManager.default
+    try fm.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data(text.utf8).write(to: path, options: .atomic)
+}
+
+func decodeYAMLOrJSON<T: Decodable>(_ type: T.Type, at path: URL) throws -> T {
+    let text = try readTextFile(path)
+    do {
+        return try YAMLDecoder().decode(T.self, from: text)
+    } catch {
+        throw NSError(
+            domain: "BosCLI.Decode",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "failed to decode \(path.path(percentEncoded: false)): \(error)"]
+        )
+    }
+}
+
+func encodeYAML<T: Encodable>(_ value: T) throws -> String {
+    try YAMLEncoder().encode(value)
+}
+
+func extractFirstSemanticVersion(from text: String) -> String? {
+    let pattern = #"\d+(?:\.\d+){1,3}"#
+    guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+    let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+    guard let match = regex.firstMatch(in: text, range: nsRange),
+          let range = Range(match.range, in: text) else {
+        return nil
+    }
+    return String(text[range])
+}
+
+func runProcess(
+    command: [String],
+    workingDirectory: URL? = nil,
+    environment: [String: String]? = nil
+) throws -> (status: Int32, stdout: String, stderr: String) {
+    struct ThreadSafeDataBuffer: Sendable {
+        private let lock = OSAllocatedUnfairLock(initialState: Data())
+
+        func append(_ data: Data) {
+            lock.withLock { storage in
+                storage.append(data)
+            }
+        }
+
+        func snapshot() -> Data {
+            lock.withLock { storage in
+                storage
+            }
+        }
+    }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = command
+    process.currentDirectoryURL = workingDirectory
+    if let environment {
+        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
+    }
+
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    process.standardOutput = stdoutPipe
+    process.standardError = stderrPipe
+
+    let stdoutBuffer = ThreadSafeDataBuffer()
+    let stderrBuffer = ThreadSafeDataBuffer()
+    stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+        let chunk = handle.availableData
+        guard !chunk.isEmpty else { return }
+        stdoutBuffer.append(chunk)
+    }
+    stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+        let chunk = handle.availableData
+        guard !chunk.isEmpty else { return }
+        stderrBuffer.append(chunk)
+    }
+
+    try process.run()
+    process.waitUntilExit()
+
+    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+    stderrPipe.fileHandleForReading.readabilityHandler = nil
+
+    let remainingStdout = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+    let remainingStderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    stdoutBuffer.append(remainingStdout)
+    stderrBuffer.append(remainingStderr)
+
+    let stdout = String(decoding: stdoutBuffer.snapshot(), as: UTF8.self)
+    let stderr = String(decoding: stderrBuffer.snapshot(), as: UTF8.self)
+    return (process.terminationStatus, stdout, stderr)
+}
+
+func detectVersion(command: [String]) -> String {
+    do {
+        let result = try runProcess(command: command)
+        if result.status != 0 {
+            return "not-found"
+        }
+        let merged = result.stdout + "\n" + result.stderr
+        return extractFirstSemanticVersion(from: merged) ?? "unknown"
+    } catch {
+        return "not-found"
+    }
+}
+
+func commandExists(_ command: String) -> Bool {
+    do {
+        let result = try runProcess(command: ["which", command])
+        return result.status == 0
+    } catch {
+        return false
+    }
+}
+
+func tokenizeCommandLine(_ raw: String) -> [String] {
+    raw.split(whereSeparator: \.isWhitespace).map(String.init)
+}
+
+func renderHumanSuccess(summary: String, artifacts: [String]) {
+    print(summary)
+    if !artifacts.isEmpty {
+        print("artifacts:")
+        for artifact in artifacts {
+            print("- \(artifact)")
+        }
+    }
+}
+
+func printJSONPayload(
+    command: String,
+    status: String,
+    exitCode: Int,
+    summary: String,
+    artifacts: [String] = []
+) {
+    let payload = CommandOutputV1(
+        command: command,
+        status: status,
+        exitCode: exitCode,
+        summary: summary,
+        artifacts: artifacts
+    )
+    do {
+        print(try payload.toJSONString())
+    } catch {
+        fputs("error: failed to encode JSON output\n", stderr)
+    }
+}
+
+func printDoctorJSONPayload(
+    status: String,
+    exitCode: Int,
+    summary: String,
+    scope: String,
+    findings: [DoctorFinding],
+    installAttempts: [DoctorInstallAttempt],
+    artifacts: [String]
+) {
+    let payload = DoctorCommandOutputV2(
+        command: BosCommand.doctor.rawValue,
+        status: status,
+        exitCode: exitCode,
+        summary: summary,
+        scope: scope,
+        findings: findings,
+        installAttempts: installAttempts,
+        artifacts: artifacts
+    )
+    do {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(payload)
+        print(String(decoding: data, as: UTF8.self))
+    } catch {
+        fputs("error: failed to encode doctor JSON output\n", stderr)
+    }
+}
+
+func fail(
+    message: String,
+    command: BosCommand? = nil,
+    format: OutputFormat = .human,
+    exitCode: ExitCode = .contractValidationError
+) -> Never {
+    switch format {
+    case .human:
+        fputs("error: \(message)\n", stderr)
+    case .json:
+        printJSONPayload(
+            command: command?.rawValue ?? "bos",
+            status: "failed",
+            exitCode: Int(exitCode.rawValue),
+            summary: message
+        )
+    }
+    exit(exitCode.rawValue)
+}
+
+struct ProcessVerifyRunner: VerifyCommandRunning {
+    func run(command: [String], in workingDirectory: URL) throws -> VerifyCommandResult {
+        let result = try runProcess(command: command, workingDirectory: workingDirectory)
+        return VerifyCommandResult(
+            exitCode: result.status,
+            stdout: result.stdout,
+            stderr: result.stderr
+        )
+    }
+}
+
+func parseDoctorScope(
+    raw: String?,
+    command: BosCommand,
+    format: OutputFormat
+) -> DoctorScope {
+    guard let raw else { return .core }
+    guard let scope = DoctorScope(rawValue: raw) else {
+        fail(
+            message: "invalid --for '\(raw)'. expected one of: core, all, plan, apply, verify, release-init",
+            command: command,
+            format: format
+        )
+    }
+    return scope
+}
+
+func detectToolchain(lock: ToolchainLockV2) throws -> DetectedToolchainV2 {
+    let swift = detectVersion(command: ["swift", "--version"])
+    let tuist = detectVersion(command: ["tuist", "version"])
+    let fastlane = detectVersion(command: ["fastlane", "--version"])
+    let env = ProcessInfo.processInfo.environment
+    let tma = try ToolchainLockV2.TMAPluginRef(
+        type: env["TMA_PLUGIN_REF_TYPE"] ?? lock.tmaPluginRef.type,
+        value: env["TMA_PLUGIN_REF_VALUE"] ?? lock.tmaPluginRef.value
+    )
+    return DetectedToolchainV2(swift: swift, tuist: tuist, fastlane: fastlane, tmaPluginRef: tma)
+}
+
+func renderDoctorHuman(
+    scope: DoctorScope,
+    result: DoctorResult,
+    installAttempts: [DoctorInstallAttempt],
+    note: String?
+) {
+    if let note {
+        print(note)
+    }
+    print(result.summary)
+    print("scope: \(scope.rawValue)")
+
+    let findings = result.findings
+    if findings.isEmpty {
+        print("findings: none")
+    } else {
+        print("findings:")
+        for finding in findings {
+            print("- \(finding.tool) [\(finding.severity.rawValue)/\(finding.status.rawValue)] expected=\(finding.expectedRule) actual=\(finding.actualVersion)")
+            print("  action: \(finding.action)")
+            if !finding.installCommands.isEmpty {
+                print("  install:")
+                for install in finding.installCommands {
+                    print("  - \(install)")
+                }
+            }
+        }
+    }
+
+    if !installAttempts.isEmpty {
+        print("install-attempts:")
+        for attempt in installAttempts {
+            let detail = attempt.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            if detail.isEmpty {
+                print("- \(attempt.tool): \(attempt.status) (\(attempt.command))")
+            } else {
+                print("- \(attempt.tool): \(attempt.status) (\(attempt.command)) stderr=\(detail)")
+            }
+        }
+    }
+
+    if !result.artifacts.isEmpty {
+        print("artifacts:")
+        for artifact in result.artifacts {
+            print("- \(artifact)")
+        }
+    }
+}
+
+func performDoctorAutoInstall(
+    findings: [DoctorFinding],
+    projectRoot: URL
+) -> [DoctorInstallAttempt] {
+    var attempts: [DoctorInstallAttempt] = []
+
+    let missingTools = findings
+        .filter { $0.status != .installed && $0.tool != "swift" && !$0.installCommands.isEmpty }
+        .sorted { $0.tool < $1.tool }
+
+    for finding in missingTools {
+        var attempted = false
+        for rawCommand in finding.installCommands {
+            let tokens = tokenizeCommandLine(rawCommand)
+            guard let executable = tokens.first else { continue }
+            guard commandExists(executable) else { continue }
+
+            attempted = true
+            do {
+                let result = try runProcess(command: tokens, workingDirectory: projectRoot)
+                let status = result.status == 0 ? "success" : "failed"
+                attempts.append(
+                    DoctorInstallAttempt(
+                        tool: finding.tool,
+                        command: rawCommand,
+                        status: status,
+                        exitCode: result.status,
+                        stderr: result.stderr
+                    )
+                )
+                if result.status == 0 {
+                    break
+                }
+            } catch {
+                attempts.append(
+                    DoctorInstallAttempt(
+                        tool: finding.tool,
+                        command: rawCommand,
+                        status: "failed",
+                        exitCode: 1,
+                        stderr: "\(error)"
+                    )
+                )
+            }
+        }
+
+        if !attempted {
+            attempts.append(
+                DoctorInstallAttempt(
+                    tool: finding.tool,
+                    command: finding.installCommands.joined(separator: " || "),
+                    status: "skipped-no-runner",
+                    exitCode: 127,
+                    stderr: "no available installer command found in current environment"
+                )
+            )
+        }
+    }
+
+    return attempts
+}
+
+func runDoctor(args: [String], format: OutputFormat) {
+    let parsed = parseOptions(
+        args: args,
+        valueFlags: ["--project-root", "--for", "--format"],
+        booleanFlags: ["--verbose", "--install", "--init-lock"]
+    )
+    assertOptionContract(parsed: parsed, command: .doctor, format: format)
+
+    let cwd = currentWorkingDirectoryURL()
+    let projectRoot = resolvePath(parsed.values["--project-root"] ?? ".", base: cwd)
+    let scope = parseDoctorScope(raw: parsed.values["--for"], command: .doctor, format: format)
+    let shouldInstall = parsed.flags.contains("--install")
+    let shouldInitLock = parsed.flags.contains("--init-lock")
+    var initializationNote: String?
+
+    let lockPath: URL
+    if let existingLockPath = resolveToolchainLockPath(projectRoot: projectRoot) {
+        lockPath = existingLockPath
+    } else if shouldInitLock {
+        let env = ProcessInfo.processInfo.environment
+        let tma = try? ToolchainLockV2.TMAPluginRef(
+            type: env["TMA_PLUGIN_REF_TYPE"] ?? "git-sha",
+            value: env["TMA_PLUGIN_REF_VALUE"] ?? "unknown"
+        )
+        guard let tma else {
+            fail(
+                message: "failed to initialize tma plugin reference from environment",
+                command: .doctor,
+                format: format
+            )
+        }
+
+        let initialLock: ToolchainLockV2
+        do {
+            initialLock = try ToolchainLockV2.defaultPolicy(tmaPluginRef: tma)
+            let encoded = try encodeYAML(initialLock)
+            let destination = preferredToolchainLockPath(projectRoot: projectRoot)
+            try writeTextFile(encoded, to: destination)
+            lockPath = destination
+            initializationNote = "Initialized toolchain lock at \(destination.path(percentEncoded: false))"
+        } catch {
+            fail(message: "failed to initialize toolchain lock: \(error)", command: .doctor, format: format)
+        }
+    } else {
+        fail(
+            message: "toolchain lock not found. expected .bos/config/toolchain.lock.yaml (fallback: toolchain.lock.yaml). use --init-lock to create one.",
+            command: .doctor,
+            format: format
+        )
+    }
+
+    let lock: ToolchainLockV2
+    do {
+        lock = try decodeToolchainLockV2WithCompatibility(at: lockPath)
+    } catch {
+        fail(message: "\(error)", command: .doctor, format: format)
+    }
+
+    let initialDetected: DetectedToolchainV2
+    do {
+        initialDetected = try detectToolchain(lock: lock)
+    } catch {
+        fail(message: "\(error)", command: .doctor, format: format)
+    }
+
+    var result: DoctorResult
+    do {
+        result = try DoctorEngine().check(
+            request: DoctorRequest(
+                projectRoot: projectRoot,
+                lock: lock,
+                detected: initialDetected,
+                checkCommands: scope.commands
+            )
+        )
+    } catch {
+        fail(message: "\(error)", command: .doctor, format: format)
+    }
+
+    var installAttempts: [DoctorInstallAttempt] = []
+    if shouldInstall {
+        installAttempts = performDoctorAutoInstall(findings: result.findings, projectRoot: projectRoot)
+        if !installAttempts.isEmpty {
+            do {
+                let detectedAfterInstall = try detectToolchain(lock: lock)
+                result = try DoctorEngine().check(
+                    request: DoctorRequest(
+                        projectRoot: projectRoot,
+                        lock: lock,
+                        detected: detectedAfterInstall,
+                        checkCommands: scope.commands
+                    )
+                )
+            } catch {
+                fail(message: "\(error)", command: .doctor, format: format)
+            }
+        }
+    }
+
+    let summary: String
+    if let initializationNote {
+        summary = "\(initializationNote). \(result.summary)"
+    } else {
+        summary = result.summary
+    }
+
+    switch format {
+    case .human:
+        renderDoctorHuman(scope: scope, result: result, installAttempts: installAttempts, note: initializationNote)
+    case .json:
+        printDoctorJSONPayload(
+            status: result.status,
+            exitCode: result.exitCode,
+            summary: summary,
+            scope: scope.rawValue,
+            findings: result.findings,
+            installAttempts: installAttempts,
+            artifacts: result.artifacts
+        )
+    }
+
+    if result.exitCode == 0 {
+        exit(ExitCode.success.rawValue)
+    } else {
+        exit(ExitCode.doctorFailed.rawValue)
+    }
+}
+
+func readPlanMarkdownCorpus(from planDirectory: URL) throws -> String {
+    var isDirectory: ObjCBool = false
+    let fm = FileManager.default
+    guard fm.fileExists(atPath: planDirectory.path(percentEncoded: false), isDirectory: &isDirectory), isDirectory.boolValue else {
+        throw NSError(
+            domain: "BosCLI.Plan",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "plan directory not found: \(planDirectory.path(percentEncoded: false))"]
+        )
+    }
+
+    guard let enumerator = fm.enumerator(
+        at: planDirectory,
+        includingPropertiesForKeys: nil,
+        options: [.skipsHiddenFiles]
+    ) else {
+        throw NSError(
+            domain: "BosCLI.Plan",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "failed to enumerate plan directory: \(planDirectory.path(percentEncoded: false))"]
+        )
+    }
+
+    var markdownFiles: [URL] = []
+    for case let file as URL in enumerator {
+        let ext = file.pathExtension.lowercased()
+        if ext == "md" || ext == "markdown" {
+            markdownFiles.append(file)
+        }
+    }
+    markdownFiles.sort { $0.path(percentEncoded: false) < $1.path(percentEncoded: false) }
+
+    guard !markdownFiles.isEmpty else {
+        throw NSError(
+            domain: "BosCLI.Plan",
+            code: 3,
+            userInfo: [NSLocalizedDescriptionKey: "no markdown files found under plan directory: \(planDirectory.path(percentEncoded: false))"]
+        )
+    }
+
+    let chunks = try markdownFiles.map { url in
+        try String(contentsOf: url, encoding: .utf8)
+    }
+    return chunks.joined(separator: "\n\n")
+}
+
+func planErrorMessage(_ error: PlanEngineError) -> String {
+    switch error {
+    case .missingReqIDs:
+        return "requirements not found. add `REQ-001` markers or `FR-001` markers in PRD/PLAN documents."
+    case .missingScreens:
+        return "screens not found. add `SCR_HOME` markers or include screen keywords (Today/Shelf/Capture/Focus/Reflection/Weekly Review/Settings)."
+    case .missingEntities:
+        return "entities not found. add `Entity: User` lines or numbered domain headings such as `11.1 Item`."
+    case .missingAppIdentifier:
+        return "missing App Identifier. add `App Identifier: com.example.app` in documents or pass `--app-identifier com.example.app`."
+    case .missingAppleTeamID:
+        return "missing Apple Team ID. add `Apple Team ID: ABCD123456` in documents or pass `--apple-team-id ABCD123456`."
+    case .missingBundleIdPrefix:
+        return "failed to derive bundle prefix. check `App Identifier` format (example: com.example.app)."
+    }
+}
+
+func runPlan(args: [String], format: OutputFormat) {
+    let parsed = parseOptions(
+        args: args,
+        valueFlags: [
+            "--project-root",
+            "--prd",
+            "--plan-dir",
+            "--profile",
+            "--out",
+            "--app-identifier",
+            "--apple-team-id",
+            "--format"
+        ],
+        booleanFlags: ["--verbose"]
+    )
+    assertOptionContract(parsed: parsed, command: .plan, format: format)
+
+    guard let outRaw = parsed.values["--out"] else {
+        fail(
+            message: "required flags: (--prd <path> | --plan-dir <path>) --out <blueprint.yaml>",
+            command: .plan,
+            format: format
+        )
+    }
+
+    let prdRaw = parsed.values["--prd"]
+    let planDirRaw = parsed.values["--plan-dir"]
+    if (prdRaw == nil) == (planDirRaw == nil) {
+        fail(
+            message: "choose exactly one input source: --prd <path> or --plan-dir <path>",
+            command: .plan,
+            format: format
+        )
+    }
+
+    let cwd = currentWorkingDirectoryURL()
+    let projectRoot = resolvePath(parsed.values["--project-root"] ?? ".", base: cwd)
+    let profilePath = resolveProfilePathOrFail(
+        raw: parsed.values["--profile"],
+        projectRoot: projectRoot,
+        command: .plan,
+        format: format
+    )
+    let outPath = resolvePath(outRaw, base: projectRoot)
+
+    do {
+        let prd: String
+        if let prdRaw {
+            let prdPath = resolvePath(prdRaw, base: projectRoot)
+            prd = try readTextFile(prdPath)
+        } else if let planDirRaw {
+            let planDirPath = resolvePath(planDirRaw, base: projectRoot)
+            let corpus = try readPlanMarkdownCorpus(from: planDirPath)
+            let deriveOptions = PlanDeriveOptions(
+                appIdentifier: parsed.values["--app-identifier"],
+                appleTeamID: parsed.values["--apple-team-id"]
+            )
+            prd = PlanEngine().derivePRD(fromPlanText: corpus, options: deriveOptions)
+        } else {
+            fail(
+                message: "choose exactly one input source: --prd <path> or --plan-dir <path>",
+                command: .plan,
+                format: format
+            )
+        }
+
+        let profile = try decodeYAMLOrJSON(ProfileV1.self, at: profilePath)
+        let blueprint = try PlanEngine().generateBlueprint(prd: prd, profile: profile)
+        let encoded = try encodeYAML(blueprint)
+        try writeTextFile(encoded, to: outPath)
+
+        let summary = "Blueprint generated at \(outPath.path(percentEncoded: false))"
+        let artifacts = [outPath.path(percentEncoded: false)]
+        switch format {
+        case .human:
+            renderHumanSuccess(summary: summary, artifacts: artifacts)
+        case .json:
+            printJSONPayload(
+                command: BosCommand.plan.rawValue,
+                status: "success",
+                exitCode: Int(ExitCode.success.rawValue),
+                summary: summary,
+                artifacts: artifacts
+            )
+        }
+        exit(ExitCode.success.rawValue)
+    } catch let error as PlanEngineError {
+        fail(message: planErrorMessage(error), command: .plan, format: format)
+    } catch {
+        fail(message: "\(error)", command: .plan, format: format)
+    }
+}
+
+func copyIfExists(from source: URL, to destination: URL) throws {
+    let fm = FileManager.default
+    guard fm.fileExists(atPath: source.path(percentEncoded: false)) else { return }
+    try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+    if fm.fileExists(atPath: destination.path(percentEncoded: false)) {
+        try fm.removeItem(at: destination)
+    }
+    try fm.copyItem(at: source, to: destination)
+}
+
+func runApply(args: [String], format: OutputFormat) {
+    let parsed = parseOptions(
+        args: args,
+        valueFlags: ["--project-root", "--blueprint", "--profile", "--mode", "--format"],
+        booleanFlags: ["--fix", "--dry-run", "--verbose"]
+    )
+    assertOptionContract(parsed: parsed, command: .apply, format: format)
+
+    guard let blueprintRaw = parsed.values["--blueprint"] else {
+        fail(
+            message: "required flags: --blueprint <path>",
+            command: .apply,
+            format: format
+        )
+    }
+
+    let cwd = currentWorkingDirectoryURL()
+    let projectRoot = resolvePath(parsed.values["--project-root"] ?? ".", base: cwd)
+    let blueprintPath = resolvePath(blueprintRaw, base: projectRoot)
+    let profilePath = resolveProfilePathOrFail(
+        raw: parsed.values["--profile"],
+        projectRoot: projectRoot,
+        command: .apply,
+        format: format
+    )
+
+    let modeRaw = parsed.values["--mode"] ?? ApplyMode.initMode.rawValue
+    guard let mode = ApplyMode(rawValue: modeRaw) else {
+        fail(message: "invalid --mode '\(modeRaw)'", command: .apply, format: format)
+    }
+    let fix = parsed.flags.contains("--fix")
+    let dryRun = parsed.flags.contains("--dry-run")
+
+    do {
+        let blueprint = try decodeYAMLOrJSON(BlueprintV1.self, at: blueprintPath)
+        let profile = try decodeYAMLOrJSON(ProfileV1.self, at: profilePath)
+        let engine = ApplyEngine()
+
+        if dryRun {
+            let sandboxRoot = FileManager.default.temporaryDirectory
+                .appendingPathComponent("bos-dry-run-\(ProcessInfo.processInfo.globallyUniqueString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: sandboxRoot, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: sandboxRoot) }
+
+            if mode == .incremental {
+                let source = projectRoot.appending(path: "Projects/App/Sources/Dependencies/AppComposition.swift")
+                let target = sandboxRoot.appending(path: "Projects/App/Sources/Dependencies/AppComposition.swift")
+                try copyIfExists(from: source, to: target)
+            }
+
+            _ = try engine.apply(
+                request: ApplyRequest(
+                    projectRoot: sandboxRoot,
+                    blueprint: blueprint,
+                    profile: profile,
+                    mode: mode,
+                    fix: fix
+                )
+            )
+
+            let summary = "Dry-run passed: no files were written to \(projectRoot.path(percentEncoded: false))"
+            switch format {
+            case .human:
+                renderHumanSuccess(summary: summary, artifacts: [])
+            case .json:
+                printJSONPayload(
+                    command: BosCommand.apply.rawValue,
+                    status: "success",
+                    exitCode: Int(ExitCode.success.rawValue),
+                    summary: summary,
+                    artifacts: []
+                )
+            }
+            exit(ExitCode.success.rawValue)
+        }
+
+        let result = try engine.apply(
+            request: ApplyRequest(
+                projectRoot: projectRoot,
+                blueprint: blueprint,
+                profile: profile,
+                mode: mode,
+                fix: fix
+            )
+        )
+
+        let summary = "Apply completed (\(mode.rawValue))"
+        let artifacts = result.artifacts + [result.lockFile]
+        switch format {
+        case .human:
+            renderHumanSuccess(summary: summary, artifacts: artifacts)
+        case .json:
+            printJSONPayload(
+                command: BosCommand.apply.rawValue,
+                status: "success",
+                exitCode: Int(ExitCode.success.rawValue),
+                summary: summary,
+                artifacts: artifacts
+            )
+        }
+        exit(ExitCode.success.rawValue)
+    } catch let error as ApplyEngineError {
+        switch error {
+        case .driftDetected, .managedBlockMissing, .anchorMismatch, .outsideManagedAreaChanged:
+            let summary = "\(error)"
+            switch format {
+            case .human:
+                fputs("error: \(summary)\n", stderr)
+            case .json:
+                printJSONPayload(
+                    command: BosCommand.apply.rawValue,
+                    status: "failed",
+                    exitCode: Int(ExitCode.driftDetected.rawValue),
+                    summary: summary
+                )
+            }
+            exit(ExitCode.driftDetected.rawValue)
+        case .unsupportedMode, .scaffoldFailed, .tmaPluginResourceMissing:
+            fail(message: "\(error)", command: .apply, format: format)
+        }
+    } catch {
+        fail(message: "\(error)", command: .apply, format: format)
+    }
+}
+
+func runVerify(args: [String], format: OutputFormat) {
+    let parsed = parseOptions(
+        args: args,
+        valueFlags: ["--project-root", "--profile", "--format"],
+        booleanFlags: ["--verbose"]
+    )
+    assertOptionContract(parsed: parsed, command: .verify, format: format)
+
+    let cwd = currentWorkingDirectoryURL()
+    let projectRoot = resolvePath(parsed.values["--project-root"] ?? ".", base: cwd)
+    let profilePath = resolveProfilePathOrFail(
+        raw: parsed.values["--profile"],
+        projectRoot: projectRoot,
+        command: .verify,
+        format: format
+    )
+
+    do {
+        let profile = try decodeYAMLOrJSON(ProfileV1.self, at: profilePath)
+        let engine = VerifyEngine(runner: ProcessVerifyRunner())
+        let result = try engine.verify(request: VerifyRequest(projectRoot: projectRoot, profile: profile))
+        switch format {
+        case .human:
+            renderHumanSuccess(summary: result.summary, artifacts: result.artifacts)
+        case .json:
+            printJSONPayload(
+                command: BosCommand.verify.rawValue,
+                status: "success",
+                exitCode: Int(ExitCode.success.rawValue),
+                summary: result.summary,
+                artifacts: result.artifacts
+            )
+        }
+        exit(ExitCode.success.rawValue)
+    } catch let error as VerifyEngineError {
+        switch error {
+        case .commandFailed(let classification, let step, _, _):
+            let summary = "verify failed at \(step.rawValue) (\(classification.rawValue))"
+            switch format {
+            case .human:
+                fputs("error: \(summary)\n", stderr)
+            case .json:
+                printJSONPayload(
+                    command: BosCommand.verify.rawValue,
+                    status: "failed",
+                    exitCode: Int(ExitCode.verifyFailed.rawValue),
+                    summary: summary
+                )
+            }
+            exit(ExitCode.verifyFailed.rawValue)
+        }
+    } catch {
+        fail(message: "\(error)", command: .verify, format: format)
+    }
+}
+
+func runReleaseInit(args: [String], format: OutputFormat) {
+    let parsed = parseOptions(
+        args: args,
+        valueFlags: ["--project-root", "--blueprint", "--profile", "--format"],
+        booleanFlags: ["--verbose"]
+    )
+    assertOptionContract(parsed: parsed, command: .releaseInit, format: format)
+
+    guard let blueprintRaw = parsed.values["--blueprint"] else {
+        fail(
+            message: "required flags: --blueprint <path>",
+            command: .releaseInit,
+            format: format
+        )
+    }
+
+    let cwd = currentWorkingDirectoryURL()
+    let projectRoot = resolvePath(parsed.values["--project-root"] ?? ".", base: cwd)
+    let blueprintPath = resolvePath(blueprintRaw, base: projectRoot)
+    let profilePath = resolveProfilePathOrFail(
+        raw: parsed.values["--profile"],
+        projectRoot: projectRoot,
+        command: .releaseInit,
+        format: format
+    )
+
+    do {
+        let blueprint = try decodeYAMLOrJSON(BlueprintV1.self, at: blueprintPath)
+        let profile = try decodeYAMLOrJSON(ProfileV1.self, at: profilePath)
+        let result = try ReleaseInitEngine().releaseInit(
+            request: ReleaseInitRequest(
+                projectRoot: projectRoot,
+                blueprint: blueprint,
+                profile: profile,
+                environment: ProcessInfo.processInfo.environment
+            )
+        )
+        let summary = "release-init completed with \(result.generatedFiles.count) generated files"
+        switch format {
+        case .human:
+            renderHumanSuccess(summary: summary, artifacts: result.artifacts + result.generatedFiles)
+        case .json:
+            printJSONPayload(
+                command: BosCommand.releaseInit.rawValue,
+                status: "success",
+                exitCode: Int(ExitCode.success.rawValue),
+                summary: summary,
+                artifacts: result.artifacts + result.generatedFiles
+            )
+        }
+        exit(ExitCode.success.rawValue)
+    } catch let error as ReleaseInitEngineError {
+        let summary: String
+        switch error {
+        case .missingRequiredEnvironment(let keys):
+            summary = "missing required environment: \(keys.joined(separator: ", "))"
+        case .laneParseFailed(let path):
+            summary = "failed to parse fastlane lanes from \(path)"
+        }
+        switch format {
+        case .human:
+            fputs("error: \(summary)\n", stderr)
+        case .json:
+            printJSONPayload(
+                command: BosCommand.releaseInit.rawValue,
+                status: "failed",
+                exitCode: Int(ExitCode.releaseInitFailed.rawValue),
+                summary: summary
+            )
+        }
+        exit(ExitCode.releaseInitFailed.rawValue)
+    } catch {
+        fail(message: "\(error)", command: .releaseInit, format: format)
+    }
+}
+
+func run() {
+    let args = Array(CommandLine.arguments.dropFirst())
+    let outputFormat = parseOutputFormat(from: args)
+
+    guard let first = args.first else {
+        printRootHelp()
+        exit(ExitCode.success.rawValue)
+    }
+
+    if first == "-h" || first == "--help" || first == "help" {
+        if args.count > 1, let command = BosCommand(rawValue: args[1]) {
+            printCommandHelp(command)
+        } else {
+            printRootHelp()
+        }
+        exit(ExitCode.success.rawValue)
+    }
+
+    guard let command = BosCommand(rawValue: first) else {
+        fail(message: "unknown command '\(first)'", format: outputFormat)
+    }
+
+    let rest = Array(args.dropFirst())
+    if rest.contains("-h") || rest.contains("--help") {
+        printCommandHelp(command)
+        exit(ExitCode.success.rawValue)
+    }
+
+    switch command {
+    case .doctor:
+        runDoctor(args: rest, format: outputFormat)
+    case .plan:
+        runPlan(args: rest, format: outputFormat)
+    case .apply:
+        runApply(args: rest, format: outputFormat)
+    case .verify:
+        runVerify(args: rest, format: outputFormat)
+    case .releaseInit:
+        runReleaseInit(args: rest, format: outputFormat)
+    }
+}
+
+run()

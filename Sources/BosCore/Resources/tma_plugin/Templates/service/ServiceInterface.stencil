@@ -1,0 +1,99 @@
+import Foundation
+import Dependencies
+
+public struct {{ name }}Request: Equatable, Sendable {
+    public var identifier: String
+    public var metadata: [String: String]
+
+    public init(identifier: String, metadata: [String: String] = [:]) {
+        self.identifier = identifier
+        self.metadata = metadata
+    }
+}
+
+public struct {{ name }}Response: Equatable, Sendable {
+    public var identifier: String
+    public var payload: Data
+    public var lastUpdated: Date
+
+    public init(identifier: String, payload: Data, lastUpdated: Date = .distantPast) {
+        self.identifier = identifier
+        self.payload = payload
+        self.lastUpdated = lastUpdated
+    }
+}
+
+public protocol {{ name }}Service: Sendable {
+    func fetch(_ request: {{ name }}Request) async throws -> {{ name }}Response
+    func store(_ response: {{ name }}Response) async throws
+    func clearCache() async throws
+}
+
+public enum {{ name }}ServiceError: Error, Equatable, Sendable {
+    case notConfigured
+    case notFound(String)
+}
+
+public enum {{ name }}ServiceKey: TestDependencyKey {
+    public static var testValue: any {{ name }}Service {
+        Unimplemented{{ name }}Service()
+    }
+
+    #if DEBUG
+    public static var previewValue: any {{ name }}Service {
+        Preview{{ name }}Service()
+    }
+    #endif
+}
+
+public extension DependencyValues {
+    var {{ name | lowerFirstWord }}Service: any {{ name }}Service {
+        get { self[{{ name }}ServiceKey.self] }
+        set { self[{{ name }}ServiceKey.self] = newValue }
+    }
+}
+
+private actor Preview{{ name }}Storage {
+    private var responses: [String: {{ name }}Response] = [:]
+
+    func fetch(id: String) -> {{ name }}Response? {
+        responses[id]
+    }
+
+    func store(_ response: {{ name }}Response) {
+        responses[response.identifier] = response
+    }
+
+    func clear() {
+        responses.removeAll()
+    }
+}
+
+private struct Preview{{ name }}Service: {{ name }}Service, Sendable {
+    private let storage = Preview{{ name }}Storage()
+
+    func fetch(_ request: {{ name }}Request) async throws -> {{ name }}Response {
+        guard let cached = await storage.fetch(id: request.identifier) else {
+            throw {{ name }}ServiceError.notFound(request.identifier)
+        }
+        return cached
+    }
+
+    func store(_ response: {{ name }}Response) async throws {
+        await storage.store(response)
+    }
+
+    func clearCache() async throws {
+        await storage.clear()
+    }
+}
+
+private struct Unimplemented{{ name }}Service: {{ name }}Service, Sendable {
+    private func unimplemented(_ function: StaticString = #function) -> Never {
+        fatalError("{{ name }}Service.\(function) is not configured. Inject a live implementation explicitly.")
+    }
+
+    func fetch(_ request: {{ name }}Request) async throws -> {{ name }}Response { unimplemented() }
+    func store(_ response: {{ name }}Response) async throws { unimplemented() }
+    func clearCache() async throws { unimplemented() }
+}

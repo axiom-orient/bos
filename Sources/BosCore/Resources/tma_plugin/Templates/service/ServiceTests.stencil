@@ -1,0 +1,76 @@
+import Testing
+import Foundation
+import Dependencies
+@testable import {{ name }}ServiceSources
+@testable import {{ name }}ServiceInterface
+
+@Suite
+struct {{ name }}ServiceTests {
+    @Test
+    func storeAndFetchRoundTrip() async throws {
+        try await withDependencies {
+            $0.date.now = Date(timeIntervalSince1970: 1_700_000_000)
+        } operation: {
+            let service = Live{{ name }}Service(timeToLive: 60)
+            let payload = Data("payload".utf8)
+            let response = {{ name }}Response(identifier: "id", payload: payload)
+
+            try await service.store(response)
+            let fetched = try await service.fetch({{ name }}Request(identifier: "id"))
+
+            #expect(fetched.identifier == response.identifier)
+            #expect(fetched.payload == payload)
+        }
+    }
+
+    @Test
+    func fetchAfterTTLExpiresThrows() async throws {
+        try await withDependencies {
+            $0.date.now = Date(timeIntervalSince1970: 1_700_000_000)
+        } operation: {
+            let service = Live{{ name }}Service(timeToLive: -1)
+            let payload = Data()
+
+            try await service.store({{ name }}Response(identifier: "id", payload: payload))
+
+            do {
+                _ = try await service.fetch({{ name }}Request(identifier: "id"))
+                Issue.record("Expected notFound error but operation succeeded")
+            } catch let serviceError as {{ name }}ServiceError {
+                guard case let .notFound(identifier) = serviceError else {
+                    Issue.record("Expected notFound but received \(String(reflecting: serviceError))")
+                    return
+                }
+                #expect(identifier == "id")
+            } catch {
+                Issue.record("Expected {{ name }}ServiceError.notFound but received \(String(reflecting: error))")
+            }
+        }
+    }
+
+    @Test
+    func clearCacheRemovesStoredResponse() async throws {
+        try await withDependencies {
+            $0.date.now = Date(timeIntervalSince1970: 1_700_000_000)
+        } operation: {
+            let service = Live{{ name }}Service(timeToLive: 60)
+            let response = {{ name }}Response(identifier: "id", payload: Data("payload".utf8))
+
+            try await service.store(response)
+            try await service.clearCache()
+
+            do {
+                _ = try await service.fetch({{ name }}Request(identifier: "id"))
+                Issue.record("Expected notFound after clearCache but operation succeeded")
+            } catch let serviceError as {{ name }}ServiceError {
+                guard case let .notFound(identifier) = serviceError else {
+                    Issue.record("Expected notFound but received \(String(reflecting: serviceError))")
+                    return
+                }
+                #expect(identifier == "id")
+            } catch {
+                Issue.record("Expected {{ name }}ServiceError.notFound but received \(String(reflecting: error))")
+            }
+        }
+    }
+}

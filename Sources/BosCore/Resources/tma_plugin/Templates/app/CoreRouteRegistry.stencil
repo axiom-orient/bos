@@ -1,0 +1,25 @@
+import Dependencies
+import {{ rootFeatureName }}Feature
+
+public struct RouteRegistry: Sendable {
+    private let resolve: @Sendable (DeepLinkRoute) -> {{ rootFeatureName }}Feature.Action?
+
+    public init(resolve: @escaping @Sendable (DeepLinkRoute) -> {{ rootFeatureName }}Feature.Action?) {
+        self.resolve = resolve
+    }
+
+    public func action(for route: DeepLinkRoute) -> {{ rootFeatureName }}Feature.Action? {
+        resolve(route)
+    }
+}
+
+extension RouteRegistry: DependencyKey {
+    public static let liveValue = RouteRegistry { _ in nil }
+}
+
+public extension DependencyValues {
+    var routeRegistry: RouteRegistry {
+        get { self[RouteRegistry.self] }
+        set { self[RouteRegistry.self] = newValue }
+    }
+}

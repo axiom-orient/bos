@@ -1,0 +1,51 @@
+import Foundation
+
+public enum AppConstants {
+    public enum Startup {
+        public static let cacheTTLSeconds: TimeInterval = 600
+    }
+
+    public enum RemoteConfig {
+        public static let forceUpdateMinimumVersionKey = "force_update_min_version"
+        public static let welcomeMessageKey = "welcome_message"
+        public static let maintenanceModeEnabledKey = "maintenance_mode_enabled"
+        public static let maintenanceMessageKey = "maintenance_message"
+
+        public static let lastRemoteConfigSyncTimestampKey = "{{ name | lowercase }}_app_state_last_remote_config_sync"
+        public static let userLanguageCodeKey = "{{ name | lowercase }}_app_state_user_language_code"
+
+        public static let defaultMaintenanceModeEnabled = false
+        public static let defaultMaintenanceMessage = "{\"en\":\"Maintenance in progress\"}"
+        public static let defaultForceUpdateMinimumVersion = ""
+        public static let defaultWelcomeMessage = "{\"en\":\"Welcome to {{ name }}\"}"
+    }
+
+    public enum Analytics {
+        public struct SampleEvent: AppAnalyticsEvent {
+            public let source: String
+
+            public var name: String { "app_startup" }
+            public var parameters: [String: String] { ["source": source] }
+
+            public init(source: String) {
+                self.source = source
+            }
+        }
+    }
+
+    public enum App {
+        public static let appStoreId = ""
+
+        public static var appStoreURL: URL {
+            guard !appStoreId.isEmpty else {
+                return URL(string: "https://apps.apple.com")!
+            }
+            return URL(string: "https://apps.apple.com/app/id\(appStoreId)")!
+        }
+    }
+
+    public enum DeepLink {
+        public static let customScheme = "{{ name | lowercase }}"
+        public static let universalDomain = "{{ bundleIdPrefix }}.app"
+    }
+}

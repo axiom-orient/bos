@@ -1,0 +1,52 @@
+import OSLog
+import Dependencies
+
+public struct LifecycleClient: Sendable {
+    public var initialize: @Sendable () async -> Void = {}
+    public var handleBackground: @Sendable () async -> Void = {}
+    public var handleForeground: @Sendable () async -> Void = {}
+
+    public init(
+        initialize: @escaping @Sendable () async -> Void = {},
+        handleBackground: @escaping @Sendable () async -> Void = {},
+        handleForeground: @escaping @Sendable () async -> Void = {}
+    ) {
+        self.initialize = initialize
+        self.handleBackground = handleBackground
+        self.handleForeground = handleForeground
+    }
+}
+
+public extension DependencyValues {
+    var lifecycleService: LifecycleClient {
+        get { self[LifecycleClient.self] }
+        set { self[LifecycleClient.self] = newValue }
+    }
+}
+
+extension LifecycleClient: DependencyKey {
+    public static let liveValue: Self = {
+        let service = DefaultLifecycleService()
+        return Self(
+            initialize: { await service.initialize() },
+            handleBackground: { await service.handleBackground() },
+            handleForeground: { await service.handleForeground() }
+        )
+    }()
+}
+
+private struct DefaultLifecycleService: Sendable {
+    private let logger = Logger(subsystem: "{{ bundleIdPrefix }}.{{ name | lowerFirstWord }}", category: "Lifecycle")
+
+    func initialize() async {
+        logger.info("Lifecycle initialize")
+    }
+
+    func handleBackground() async {
+        logger.debug("Lifecycle background transition")
+    }
+
+    func handleForeground() async {
+        logger.debug("Lifecycle foreground transition")
+    }
+}

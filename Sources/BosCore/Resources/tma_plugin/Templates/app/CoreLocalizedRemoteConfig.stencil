@@ -1,0 +1,26 @@
+import Foundation
+
+/// Parses JSON-encoded localized remote config values.
+public enum LocalizedRemoteConfig {
+    /// Returns available language keys sorted ascending.
+    public static func availableLanguages(_ rawValue: String) -> [String] {
+        guard !rawValue.isEmpty,
+              let data = rawValue.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return []
+        }
+
+        return Array(json.keys).sorted()
+    }
+
+    /// Returns localized string by language code, or nil if missing/invalid format.
+    public static func localize(_ rawValue: String, forLanguage languageCode: String) -> String? {
+        guard !rawValue.isEmpty,
+              let data = rawValue.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return nil
+        }
+
+        return json[languageCode]
+    }
+}

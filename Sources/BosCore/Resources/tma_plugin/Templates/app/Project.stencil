@@ -1,0 +1,99 @@
+import ProjectDescription
+
+let organizationName = "{{ organizationName }}"
+let bundleIdPrefix = "{{ bundleIdPrefix }}"
+let appName = "{{ name }}"
+let appBundleId = "\(bundleIdPrefix).{{ name | lowercase }}"
+let deploymentTarget: DeploymentTargets = .iOS("{{ deploymentTarget }}")
+{% if teamId != "" %}let teamID = "{{ teamId }}"{% endif %}
+
+let appInfoPlist: [String: Plist.Value] = [
+    "UILaunchScreen": .dictionary([:]),
+    "UIRequiresFullScreen": .boolean(true),
+    "UISupportedInterfaceOrientations": .array([.string("UIInterfaceOrientationPortrait")]),
+    "UIUserInterfaceStyle": .string("Light"),
+    "CFBundleURLTypes": .array([
+        .dictionary([
+            "CFBundleTypeRole": .string("Editor"),
+            "CFBundleURLName": .string(appBundleId),
+            "CFBundleURLSchemes": .array([.string("{{ name | lowercase }}")])
+        ])
+    ])
+]
+
+let signingSettings: SettingsDictionary = [{% if teamId != "" %}
+    "DEVELOPMENT_TEAM": .string(teamID),
+    "CODE_SIGN_STYLE": .string("Automatic"){% else %}
+    "CODE_SIGN_STYLE": .string("Automatic"){% endif %}
+]
+
+let baseSettings: SettingsDictionary = [
+    "ENABLE_USER_SCRIPT_SANDBOXING": .string("YES"),
+    "ENABLE_MODULE_VERIFIER": .string("YES"),
+    "SWIFT_STRICT_CONCURRENCY": .string("complete"),
+    "OTHER_LDFLAGS": .array(["$(inherited)", "-ObjC"]),
+    "OTHER_SWIFT_FLAGS": .array(["$(inherited)", "-enable-upcoming-feature", "InferSendableFromCaptures"])
+].merging(signingSettings) { _, new in new }
+
+let debugSigningOverrides: SettingsDictionary = [{% if teamId == "" %}
+    "CODE_SIGNING_ALLOWED": .string("NO"),
+    "CODE_SIGNING_REQUIRED": .string("NO"){% endif %}
+]
+
+let project = Project(
+    name: appName,
+    organizationName: organizationName,
+    settings: .settings(
+        base: baseSettings,
+        debug: debugSigningOverrides,
+        defaultSettings: .recommended()
+    ),
+    targets: [
+        .target(
+            name: appName,
+            destinations: .iOS,
+            product: .app,
+            bundleId: appBundleId,
+            deploymentTargets: deploymentTarget,
+            infoPlist: .extendingDefault(with: appInfoPlist),
+            resources: ["Resources/**"],
+            buildableFolders: ["Sources"],
+            dependencies: [
+                .project(target: "{{ rootFeatureName }}Feature", path: .relativeToRoot("Projects/Features/{{ rootFeatureName }}")),
+                .external(name: "ComposableArchitecture"),
+                .external(name: "Dependencies")
+            ],
+            settings: .settings(
+                base: baseSettings,
+                debug: debugSigningOverrides,
+                defaultSettings: .recommended()
+            )
+        ),
+        .target(
+            name: "\(appName)Tests",
+            destinations: .iOS,
+            product: .unitTests,
+            bundleId: "\(appBundleId).tests",
+            deploymentTargets: deploymentTarget,
+            buildableFolders: ["Tests"],
+            dependencies: [
+                .target(name: appName)
+            ],
+            settings: .settings(
+                base: baseSettings,
+                debug: debugSigningOverrides,
+                defaultSettings: .recommended()
+            )
+        )
+    ],
+    schemes: [
+        .scheme(
+            name: appName,
+            shared: true,
+            buildAction: .buildAction(targets: [
+                .init(stringLiteral: appName)
+            ]),
+            testAction: .targets([.init(stringLiteral: "\(appName)Tests")])
+        )
+    ]
+)

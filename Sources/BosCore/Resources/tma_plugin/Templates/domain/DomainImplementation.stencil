@@ -1,0 +1,78 @@
+import Foundation
+import Dependencies
+import {{ name }}DomainInterface
+
+public struct Default{{ name }}UseCase: {{ name }}UseCase, Sendable {
+    @Dependency(\.date.now) private var now
+    @Dependency(\.uuid) private var uuid
+    private let storage = EntitiesStorage()
+
+    public init() {}
+
+    public func listEntities() async throws -> [{{ name }}Entity] {
+        await storage.all()
+    }
+
+    public func detail(for id: String) async throws -> {{ name }}Entity {
+        guard let entity = await storage.entity(id: id) else {
+            throw {{ name }}DomainError.notFound(identifier: id)
+        }
+        return entity
+    }
+
+    public func create(_ entity: {{ name }}Entity) async throws -> {{ name }}Entity {
+        try validate(entity)
+        let resolvedID = entity.id.isEmpty ? uuid().uuidString : entity.id
+        let resolvedCreatedAt = entity.createdAt == .distantPast ? now : entity.createdAt
+        let newEntity = {{ name }}Entity(
+            id: resolvedID,
+            name: entity.name,
+            createdAt: resolvedCreatedAt
+        )
+        await storage.insert(newEntity)
+        return newEntity
+    }
+
+    public func update(_ entity: {{ name }}Entity) async throws -> {{ name }}Entity {
+        try validate(entity)
+        guard await storage.contains(id: entity.id) else {
+            throw {{ name }}DomainError.notFound(identifier: entity.id)
+        }
+        await storage.insert(entity)
+        return entity
+    }
+
+    public func delete(id: String) async throws {
+        await storage.remove(id: id)
+    }
+
+    private func validate(_ entity: {{ name }}Entity) throws {
+        guard !entity.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw {{ name }}DomainError.validationFailed(reason: "Name must not be empty")
+        }
+    }
+}
+
+private actor EntitiesStorage {
+    private var storage: [String: {{ name }}Entity] = [:]
+
+    func all() -> [{{ name }}Entity] {
+        storage.values.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    func entity(id: String) -> {{ name }}Entity? {
+        storage[id]
+    }
+
+    func contains(id: String) -> Bool {
+        storage[id] != nil
+    }
+
+    func insert(_ entity: {{ name }}Entity) {
+        storage[entity.id] = entity
+    }
+
+    func remove(id: String) {
+        storage[id] = nil
+    }
+}

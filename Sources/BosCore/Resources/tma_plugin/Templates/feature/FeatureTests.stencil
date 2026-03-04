@@ -1,0 +1,37 @@
+import Testing
+import ComposableArchitecture
+@testable import {{ name }}Feature
+
+@Suite
+struct {{ name }}FeatureTests {
+    @Test @MainActor
+    func onAppear_loadsContent() async {
+        let clock = TestClock()
+
+        let store = TestStore(initialState: {{ name }}Feature.State()) {
+            {{ name }}Feature()
+        } withDependencies: {
+            $0.continuousClock = clock
+        }
+
+        await store.send(.view(.onAppear)) {
+            $0.isLoading = true
+        }
+
+        await clock.advance(by: .milliseconds(120))
+
+        await store.receive(.internal(.loadCompleted)) {
+            $0.isLoading = false
+        }
+    }
+
+    @Test @MainActor
+    func retryButtonSendsDelegate() async {
+        let store = TestStore(initialState: {{ name }}Feature.State()) {
+            {{ name }}Feature()
+        }
+
+        await store.send(.view(.retryButtonTapped))
+        await store.receive(.delegate(.didRequestRetry))
+    }
+}

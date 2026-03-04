@@ -1,0 +1,97 @@
+import Foundation
+import Dependencies
+
+public protocol {{ name }}UseCase: Sendable {
+    func listEntities() async throws -> [{{ name }}Entity]
+    func detail(for id: String) async throws -> {{ name }}Entity
+    func create(_ entity: {{ name }}Entity) async throws -> {{ name }}Entity
+    func update(_ entity: {{ name }}Entity) async throws -> {{ name }}Entity
+    func delete(id: String) async throws
+}
+
+public enum {{ name }}UseCaseKey: TestDependencyKey {
+    public static var testValue: any {{ name }}UseCase {
+        Unimplemented{{ name }}UseCase()
+    }
+
+    #if DEBUG
+    public static var previewValue: any {{ name }}UseCase {
+        Preview{{ name }}UseCase()
+    }
+    #endif
+}
+
+public extension DependencyValues {
+    var {{ name | lowerFirstWord }}UseCase: any {{ name }}UseCase {
+        get { self[{{ name }}UseCaseKey.self] }
+        set { self[{{ name }}UseCaseKey.self] = newValue }
+    }
+}
+
+private actor Preview{{ name }}UseCaseStorage {
+    private var storage: [String: {{ name }}Entity] = [:]
+
+    func all() -> [{{ name }}Entity] {
+        storage.values.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    func entity(id: String) -> {{ name }}Entity? {
+        storage[id]
+    }
+
+    func contains(id: String) -> Bool {
+        storage[id] != nil
+    }
+
+    func insert(_ entity: {{ name }}Entity) {
+        storage[entity.id] = entity
+    }
+
+    func remove(id: String) {
+        storage[id] = nil
+    }
+}
+
+private struct Preview{{ name }}UseCase: {{ name }}UseCase, Sendable {
+    private let storage = Preview{{ name }}UseCaseStorage()
+
+    func listEntities() async throws -> [{{ name }}Entity] {
+        await storage.all()
+    }
+
+    func detail(for id: String) async throws -> {{ name }}Entity {
+        guard let entity = await storage.entity(id: id) else {
+            throw {{ name }}DomainError.notFound(identifier: id)
+        }
+        return entity
+    }
+
+    func create(_ entity: {{ name }}Entity) async throws -> {{ name }}Entity {
+        await storage.insert(entity)
+        return entity
+    }
+
+    func update(_ entity: {{ name }}Entity) async throws -> {{ name }}Entity {
+        guard await storage.contains(id: entity.id) else {
+            throw {{ name }}DomainError.notFound(identifier: entity.id)
+        }
+        await storage.insert(entity)
+        return entity
+    }
+
+    func delete(id: String) async throws {
+        await storage.remove(id: id)
+    }
+}
+
+private struct Unimplemented{{ name }}UseCase: {{ name }}UseCase, Sendable {
+    private func unimplemented(_ function: StaticString = #function) -> Never {
+        fatalError("{{ name }}UseCase.\(function) is not configured. Inject a live implementation explicitly.")
+    }
+
+    func listEntities() async throws -> [{{ name }}Entity] { unimplemented() }
+    func detail(for id: String) async throws -> {{ name }}Entity { unimplemented() }
+    func create(_ entity: {{ name }}Entity) async throws -> {{ name }}Entity { unimplemented() }
+    func update(_ entity: {{ name }}Entity) async throws -> {{ name }}Entity { unimplemented() }
+    func delete(id: String) async throws { unimplemented() }
+}

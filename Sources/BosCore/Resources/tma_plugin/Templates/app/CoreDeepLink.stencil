@@ -1,0 +1,70 @@
+import Foundation
+
+public enum DeepLinkConfig {
+    public static let universalLinksDomain = AppConstants.DeepLink.universalDomain
+    public static let customScheme = AppConstants.DeepLink.customScheme
+}
+
+@MainActor
+final class DeepLinkStore: ObservableObject {
+    @Published private(set) var pendingURL: URL?
+
+    func publish(_ url: URL) {
+        pendingURL = url
+    }
+
+    func clear() {
+        pendingURL = nil
+    }
+}
+
+public enum DeepLinkRoute: Equatable, Sendable {
+    case home
+    case settings
+    case unknown(path: String)
+}
+
+public enum DeepLinkParser {
+    public static func parse(_ url: URL) -> DeepLinkRoute {
+        let components = extractComponents(from: url)
+
+        switch components {
+        case [], ["home"]:
+            return .home
+        case ["settings"]:
+            return .settings
+        default:
+            return .unknown(path: components.joined(separator: "/"))
+        }
+    }
+
+    public static func isUniversalLink(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return host == DeepLinkConfig.universalLinksDomain ||
+            host.hasSuffix(".\(DeepLinkConfig.universalLinksDomain)")
+    }
+
+    public static func isCustomScheme(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == DeepLinkConfig.customScheme
+    }
+
+    private static func extractComponents(from url: URL) -> [String] {
+        var components: [String] = []
+        let scheme = url.scheme?.lowercased()
+
+        if let host = url.host, !host.isEmpty {
+            if scheme == "http" || scheme == "https" {
+                if !DeepLinkParser.isUniversalLink(url) {
+                    components.append(host)
+                }
+            } else {
+                components.append(host)
+            }
+        }
+
+        let pathParts = url.pathComponents.filter { $0 != "/" }
+        components.append(contentsOf: pathParts)
+
+        return components.map { $0.lowercased() }
+    }
+}

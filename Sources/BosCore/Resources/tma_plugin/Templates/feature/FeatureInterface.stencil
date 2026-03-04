@@ -1,0 +1,47 @@
+import SwiftUI
+import Dependencies
+
+public protocol {{ name }}FeatureBuildable: Sendable {
+    @MainActor
+    func build() -> AnyView
+}
+
+public extension {{ name }}FeatureBuildable {
+    @MainActor
+    func eraseToAnyView() -> AnyView { build() }
+}
+
+public enum {{ name }}FeatureBuilderKey: TestDependencyKey {
+    public static var testValue: any {{ name }}FeatureBuildable {
+        Stub{{ name }}FeatureBuilder()
+    }
+
+    #if DEBUG
+    public static var previewValue: any {{ name }}FeatureBuildable {
+        Stub{{ name }}FeatureBuilder()
+    }
+    #endif
+}
+
+public extension DependencyValues {
+    var {{ name | lowerFirstWord }}FeatureBuilder: any {{ name }}FeatureBuildable {
+        get { self[{{ name }}FeatureBuilderKey.self] }
+        set { self[{{ name }}FeatureBuilderKey.self] = newValue }
+    }
+}
+
+private struct Stub{{ name }}FeatureBuilder: {{ name }}FeatureBuildable, Sendable {
+    @MainActor
+    func build() -> AnyView {
+        AnyView(
+            VStack(alignment: .leading, spacing: 8) {
+                Text("{{ name }} Feature")
+                    .font(.headline)
+                Text("Stubbed builder for testing/previews")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .padding()
+        )
+    }
+}

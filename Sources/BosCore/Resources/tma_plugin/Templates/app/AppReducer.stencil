@@ -1,0 +1,128 @@
+import Foundation
+import ComposableArchitecture
+import Dependencies
+import {{ rootFeatureName }}Feature
+
+public enum RootViewState: Equatable, Sendable {
+    case splash
+    case maintenance(message: String)
+    case forceUpdate(requiredVersion: String)
+    case error(message: String)
+    case main
+}
+
+@Reducer
+public struct AppReducer: Sendable {
+    @Dependency(\.deepLink) private var deepLink
+    @Dependency(\.routeRegistry) private var routeRegistry
+
+    @ObservableState
+    public struct State: Equatable, Sendable {
+        public var lifecycle = ApplicationLifecycle.State()
+        public var rootViewState: RootViewState = .splash
+        public var root = {{ rootFeatureName }}Feature.State()
+        @Presents public var alert: AlertState<Action.Alert>?
+
+        public init() {}
+
+        public var localizedWelcomeMessage: String {
+            lifecycle.localizedWelcomeMessage
+        }
+    }
+
+    @CasePathable
+    public enum Action: Sendable {
+        case lifecycle(ApplicationLifecycle.Action)
+        case root({{ rootFeatureName }}Feature.Action)
+
+        case view(ViewAction)
+        case alert(PresentationAction<Alert>)
+
+        public enum Alert: Sendable, Equatable {
+            case dismiss
+        }
+    }
+
+    public enum ViewAction: Sendable, Equatable {
+        case appDidLaunch
+        case retryColdStart
+        case splashAnimationCompleted
+        case deepLinkReceived(URL)
+    }
+
+    public init() {}
+
+    public var body: some ReducerOf<Self> {
+        Reduce { state, action in
+            switch action {
+            case .view(.appDidLaunch):
+                return .send(.lifecycle(.view(.initialize)))
+
+            case .view(.retryColdStart):
+                state.rootViewState = .splash
+                return .send(.lifecycle(.view(.retry)))
+
+            case .view(.splashAnimationCompleted):
+                return .send(.lifecycle(.view(.splashAnimationCompleted)))
+
+            case let .view(.deepLinkReceived(url)):
+                let route = deepLink.parse(url)
+                guard let rootAction = routeRegistry.action(for: route) else {
+                    state.alert = AlertState {
+                        TextState("Unsupported Link")
+                    } actions: {
+                        ButtonState(role: .cancel, action: .dismiss) {
+                            TextState("Close")
+                        }
+                    } message: {
+                        TextState("No route for \(url.absoluteString)")
+                    }
+                    return .none
+                }
+                return .send(.root(rootAction))
+
+            case .root:
+                return .none
+
+            case .alert(.presented(.dismiss)), .alert(.dismiss):
+                state.alert = nil
+                return .none
+
+            case let .lifecycle(.delegate(.startupResult(result))):
+                switch result {
+                case .ready:
+                    if state.lifecycle.isSplashAnimationComplete {
+                        state.rootViewState = .main
+                    }
+
+                case let .maintenance(message):
+                    state.rootViewState = .maintenance(message: message)
+
+                case let .forceUpdate(version):
+                    state.rootViewState = .forceUpdate(requiredVersion: version)
+
+                case let .error(message):
+                    state.rootViewState = .error(message: message)
+                }
+                return .none
+
+            case .lifecycle(.delegate(.showSplash)):
+                state.rootViewState = .splash
+                return .none
+
+            case .lifecycle:
+                return .none
+            }
+        }
+
+        Scope(state: \.root, action: \.root) {
+            {{ rootFeatureName }}Feature()
+        }
+
+        Scope(state: \.lifecycle, action: \.lifecycle) {
+            ApplicationLifecycle()
+        }
+
+        .ifLet(\.$alert, action: \.alert)
+    }
+}

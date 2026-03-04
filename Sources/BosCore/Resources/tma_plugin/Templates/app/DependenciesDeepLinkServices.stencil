@@ -1,0 +1,21 @@
+import Foundation
+import Dependencies
+
+public struct DeepLinkClient: Sendable {
+    public var parse: @Sendable (_ url: URL) -> DeepLinkRoute
+
+    public init(parse: @escaping @Sendable (_ url: URL) -> DeepLinkRoute) {
+        self.parse = parse
+    }
+}
+
+extension DeepLinkClient: DependencyKey {
+    public static let liveValue = Self(parse: DeepLinkParser.parse)
+}
+
+public extension DependencyValues {
+    var deepLink: DeepLinkClient {
+        get { self[DeepLinkClient.self] }
+        set { self[DeepLinkClient.self] = newValue }
+    }
+}

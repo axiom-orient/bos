@@ -1,0 +1,20 @@
+import Foundation
+import OSLog
+
+/// Defines a start-up task for the application to run during bootstrapping.
+@MainActor
+public protocol AppBootstrapper: Sendable {
+    func bootstrap()
+}
+
+/// Default bootstrapper keeps startup extension points explicit without forcing any SDK dependency.
+@MainActor
+public struct DefaultAppBootstrapper: AppBootstrapper {
+    private let logger = Logger(subsystem: "{{ bundleIdPrefix }}.{{ name | lowerFirstWord }}", category: "Bootstrap")
+
+    public init() {}
+
+    public func bootstrap() {
+        logger.debug("App bootstrap started")
+    }
+}

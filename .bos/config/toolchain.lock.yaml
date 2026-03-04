@@ -1,0 +1,29 @@
+schemaVersion: 2
+tools:
+  swift:
+    versionRule:
+      kind: semver-range
+      value: ">=6.0 <7.0"
+    requiredFor: [plan, apply, verify, release-init]
+    installHints:
+      - xcode-select --install
+      - brew install swift
+  tuist:
+    versionRule:
+      kind: semver-range
+      value: ">=4.153.1 <5.0.0"
+    requiredFor: [apply, verify]
+    installHints:
+      - brew install tuist
+      - mise use -g tuist@latest
+  fastlane:
+    versionRule:
+      kind: semver-range
+      value: ">=2.228.0 <3.0.0"
+    requiredFor: [release-init]
+    installHints:
+      - brew install fastlane
+      - gem install fastlane -NV
+tmaPluginRef:
+  type: git-sha
+  value: 7c00394f304f966f4ce621a7b72f2b3b19789509

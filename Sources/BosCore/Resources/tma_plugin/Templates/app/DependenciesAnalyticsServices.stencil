@@ -1,0 +1,59 @@
+import OSLog
+import Dependencies
+
+public protocol AppAnalyticsEvent: Sendable {
+    var name: String { get }
+    var parameters: [String: String] { get }
+}
+
+public struct AnalyticsClient: Sendable {
+    public var logEvent: @Sendable (_ event: any AppAnalyticsEvent) async -> Void
+    public var updateEnabled: @Sendable (_ isEnabled: Bool) async -> Void
+
+    public init(
+        logEvent: @escaping @Sendable (_ event: any AppAnalyticsEvent) async -> Void = { _ in },
+        updateEnabled: @escaping @Sendable (_ isEnabled: Bool) async -> Void = { _ in }
+    ) {
+        self.logEvent = logEvent
+        self.updateEnabled = updateEnabled
+    }
+
+    public static let live: Self = {
+        let service = LoggingAnalyticsService()
+        return Self(
+            logEvent: { event in await service.log(event: event) },
+            updateEnabled: { enabled in await service.setEnabled(enabled) }
+        )
+    }()
+}
+
+private actor LoggingAnalyticsService {
+    private let logger = Logger(subsystem: "{{ bundleIdPrefix }}.{{ name | lowerFirstWord }}", category: "Analytics")
+    private var isEnabled = true
+
+    func setEnabled(_ enabled: Bool) {
+        isEnabled = enabled
+    }
+
+    func log(event: any AppAnalyticsEvent) {
+        guard isEnabled else { return }
+
+        if event.parameters.isEmpty {
+            logger.debug("Tracked event \(event.name, privacy: .public)")
+            return
+        }
+
+        logger.debug("Tracked event \(event.name, privacy: .public) with \(event.parameters, privacy: .public)")
+    }
+}
+
+private enum AnalyticsServiceKey: DependencyKey {
+    static let liveValue: AnalyticsClient = .live
+}
+
+public extension DependencyValues {
+    var appAnalyticsService: AnalyticsClient {
+        get { self[AnalyticsServiceKey.self] }
+        set { self[AnalyticsServiceKey.self] = newValue }
+    }
+}

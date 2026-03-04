@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "name": "daycraft",
+  "defaults": {
+    "deploymentTarget": "18.0",
+    "appTargets": {
+      "controlsExtension": true,
+      "uiTests": true
+    }
+  },
+  "featurePattern": {
+    "sourcesInterface": true,
+    "designFolder": true
+  },
+  "rules": {
+    "testingStyle": "swift-testing",
+    "forbidPatterns": [
+      "@unchecked Sendable",
+      "Date()",
+      "UUID()"
+    ]
+  }
+}

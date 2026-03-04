@@ -1,0 +1,35 @@
+import Foundation
+
+/// Core domain entities for the {{ name }} bounded context.
+public struct {{ name }}Entity: Identifiable, Equatable, Sendable {
+    public let id: String
+    public var name: String
+    public var createdAt: Date
+
+    public init(id: String = "", name: String, createdAt: Date = .distantPast) {
+        self.id = id
+        self.name = name
+        self.createdAt = createdAt
+    }
+}
+
+public enum {{ name }}DomainError: LocalizedError, Equatable, Sendable {
+    case notFound(identifier: String)
+    case validationFailed(reason: String)
+    case underlying(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .notFound(identifier):
+            return "\({{ name }}Entity.self) not found: \(identifier)"
+        case let .validationFailed(reason):
+            return "Validation failed: \(reason)"
+        case let .underlying(message):
+            return message
+        }
+    }
+
+    public static func underlying(_ error: Error) -> Self {
+        .underlying(error.localizedDescription)
+    }
+}

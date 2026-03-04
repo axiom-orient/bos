@@ -1,0 +1,48 @@
+import SwiftUI
+import ComposableArchitecture
+
+public struct {{ name }}FeatureView: View {
+    @Bindable public var store: StoreOf<{{ name }}Feature>
+
+    public init(store: StoreOf<{{ name }}Feature>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        VStack(spacing: 20) {
+            Text(store.title)
+                .font(.title.weight(.semibold))
+
+            if store.isLoading {
+                ProgressView()
+            } else {
+                Text("Content is ready")
+                    .font(.body)
+            }
+
+            Button(role: .none) {
+                store.send(.view(.retryButtonTapped))
+            } label: {
+                Label("Retry", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(.vertical, 32)
+        .padding(.horizontal, 20)
+        .task {
+            store.send(.view(.onAppear), animation: .default)
+        }
+    }
+}
+
+#if DEBUG
+struct {{ name }}FeatureView_Previews: PreviewProvider {
+    static var previews: some View {
+        {{ name }}FeatureView(
+            store: Store(initialState: {{ name }}Feature.State()) {
+                {{ name }}Feature()
+            }
+        )
+    }
+}
+#endif

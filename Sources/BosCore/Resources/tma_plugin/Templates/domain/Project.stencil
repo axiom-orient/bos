@@ -1,0 +1,82 @@
+import ProjectDescription
+
+let organizationName = "{{ organizationName }}"
+let bundleIdPrefix = "{{ bundleIdPrefix }}"
+let deploymentTarget: DeploymentTargets = .iOS("{{ deploymentTarget }}")
+let moduleName = "{{ name }}Domain"
+{% if teamId != "" %}let teamID = "{{ teamId }}"{% endif %}
+
+let baseSettings: SettingsDictionary = [
+    "ENABLE_USER_SCRIPT_SANDBOXING": .string("YES"),
+    "ENABLE_MODULE_VERIFIER": .string("YES"),
+    "SWIFT_STRICT_CONCURRENCY": .string("targeted"){% if teamId != "" %},
+    "DEVELOPMENT_TEAM": .string(teamID){% endif %}
+]
+
+let project = Project(
+    name: moduleName,
+    organizationName: organizationName,
+    settings: .settings(
+        base: baseSettings,
+        defaultSettings: .recommended()
+    ),
+    targets: [
+        .target(
+            name: "\(moduleName)Interface",
+            destinations: .iOS,
+            product: .framework,
+            bundleId: "\(bundleIdPrefix).\(moduleName.lowercased()).interface",
+            deploymentTargets: deploymentTarget,
+            buildableFolders: ["Interface"],
+            dependencies: [
+                .external(name: "Dependencies")
+            ],
+            settings: .settings(
+                base: baseSettings,
+                defaultSettings: .recommended()
+            )
+        ),
+        .target(
+            name: "\(moduleName)Sources",
+            destinations: .iOS,
+            product: .framework,
+            bundleId: "\(bundleIdPrefix).\(moduleName.lowercased()).sources",
+            deploymentTargets: deploymentTarget,
+            buildableFolders: ["Sources"],
+            dependencies: [
+                .target(name: "\(moduleName)Interface")
+            ],
+            settings: .settings(
+                base: baseSettings,
+                defaultSettings: .recommended()
+            )
+        ),
+        .target(
+            name: "\(moduleName)Tests",
+            destinations: .iOS,
+            product: .unitTests,
+            bundleId: "\(bundleIdPrefix).\(moduleName.lowercased()).tests",
+            deploymentTargets: deploymentTarget,
+            buildableFolders: ["Tests"],
+            dependencies: [
+                .target(name: "\(moduleName)Sources"),
+                .target(name: "\(moduleName)Interface")
+            ],
+            settings: .settings(
+                base: baseSettings,
+                defaultSettings: .recommended()
+            )
+        )
+    ],
+    schemes: [
+        .scheme(
+            name: moduleName,
+            shared: true,
+            buildAction: .buildAction(targets: [
+                .init(stringLiteral: "\(moduleName)Interface"),
+                .init(stringLiteral: "\(moduleName)Sources")
+            ]),
+            testAction: .targets([.init(stringLiteral: "\(moduleName)Tests")])
+        )
+    ]
+)

@@ -1,0 +1,68 @@
+import ProjectDescription
+
+let organizationName = "{{ organizationName }}"
+let bundleIdPrefix = "{{ bundleIdPrefix }}"
+let moduleName = "{{ name }}Feature"
+let deploymentTarget: DeploymentTargets = .iOS("{{ deploymentTarget }}")
+{% if teamId != "" %}let teamID = "{{ teamId }}"{% endif %}
+
+let baseSettings: SettingsDictionary = [
+    "ENABLE_USER_SCRIPT_SANDBOXING": .string("YES"),
+    "ENABLE_MODULE_VERIFIER": .string("YES"),
+    "SWIFT_STRICT_CONCURRENCY": .string("complete"),
+    "OTHER_SWIFT_FLAGS": .array(["-enable-upcoming-feature", "InferSendableFromCaptures"]){% if teamId != "" %},
+    "DEVELOPMENT_TEAM": .string(teamID){% endif %}
+]
+
+let project = Project(
+    name: moduleName,
+    organizationName: organizationName,
+    settings: .settings(
+        base: baseSettings,
+        defaultSettings: .recommended()
+    ),
+    targets: [
+        .target(
+            name: moduleName,
+            destinations: .iOS,
+            product: .staticFramework,
+            bundleId: "\(bundleIdPrefix).\(moduleName.lowercased())",
+            deploymentTargets: deploymentTarget,
+            resources: ["Resources/**"],
+            buildableFolders: ["Sources"],
+            dependencies: [
+                .external(name: "ComposableArchitecture"),
+                .external(name: "Dependencies")
+            ],
+            settings: .settings(
+                base: baseSettings,
+                defaultSettings: .recommended()
+            )
+        ),
+        .target(
+            name: "\(moduleName)Tests",
+            destinations: .iOS,
+            product: .unitTests,
+            bundleId: "\(bundleIdPrefix).\(moduleName.lowercased()).tests",
+            deploymentTargets: deploymentTarget,
+            buildableFolders: ["Tests"],
+            dependencies: [
+                .target(name: moduleName)
+            ],
+            settings: .settings(
+                base: baseSettings,
+                defaultSettings: .recommended()
+            )
+        )
+    ],
+    schemes: [
+        .scheme(
+            name: moduleName,
+            shared: true,
+            buildAction: .buildAction(targets: [
+                .init(stringLiteral: moduleName)
+            ]),
+            testAction: .targets([.init(stringLiteral: "\(moduleName)Tests")])
+        )
+    ]
+)

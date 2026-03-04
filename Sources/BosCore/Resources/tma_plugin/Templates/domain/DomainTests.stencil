@@ -1,0 +1,65 @@
+import Testing
+import Foundation
+import Dependencies
+@testable import {{ name }}DomainSources
+@testable import {{ name }}DomainInterface
+
+@Suite
+struct {{ name }}UseCaseTests {
+    @Test
+    func createAndFetchRoundTrip() async throws {
+        try await withDependencies {
+            $0.uuid = .incrementing
+            $0.date.now = Date(timeIntervalSince1970: 1_700_000_000)
+        } operation: {
+            let useCase = Default{{ name }}UseCase()
+            let entity = {{ name }}Entity(name: "Sample")
+
+            let created = try await useCase.create(entity)
+            #expect(created.name == entity.name)
+
+            let fetched = try await useCase.detail(for: created.id)
+            #expect(fetched == created)
+
+            let all = try await useCase.listEntities()
+            #expect(all == [created])
+        }
+    }
+
+    @Test
+    func updateRequiresExistingEntity() async throws {
+        let useCase = Default{{ name }}UseCase()
+        let entity = {{ name }}Entity(name: "Missing")
+
+        do {
+            _ = try await useCase.update(entity)
+            Issue.record("Expected notFound error but operation succeeded")
+        } catch let domainError as {{ name }}DomainError {
+            guard case .notFound = domainError else {
+                Issue.record("Expected notFound but received \(String(reflecting: domainError))")
+                return
+            }
+        } catch {
+            Issue.record("Expected {{ name }}DomainError.notFound but received \(String(reflecting: error))")
+        }
+    }
+
+    @Test
+    func createRejectsBlankName() async throws {
+        let useCase = Default{{ name }}UseCase()
+        let entity = {{ name }}Entity(name: "   ")
+
+        do {
+            _ = try await useCase.create(entity)
+            Issue.record("Expected validationFailed error but operation succeeded")
+        } catch let domainError as {{ name }}DomainError {
+            guard case let .validationFailed(reason) = domainError else {
+                Issue.record("Expected validationFailed but received \(String(reflecting: domainError))")
+                return
+            }
+            #expect(reason == "Name must not be empty")
+        } catch {
+            Issue.record("Expected {{ name }}DomainError.validationFailed but received \(String(reflecting: error))")
+        }
+    }
+}

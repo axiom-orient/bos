@@ -1,0 +1,8 @@
+import Dependencies
+
+public enum AppComposition {
+    public static func configureAll(_ values: inout DependencyValues) {
+        values.appAnalyticsService = .live
+        values.updateChecker = .live
+    }
+}

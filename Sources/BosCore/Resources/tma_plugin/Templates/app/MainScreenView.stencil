@@ -1,0 +1,13 @@
+import SwiftUI
+import ComposableArchitecture
+import {{ rootFeatureName }}Feature
+
+struct MainScreenView: View {
+    @Bindable var store: StoreOf<AppReducer>
+
+    var body: some View {
+        {{ rootFeatureName }}FeatureView(
+            store: store.scope(state: \.root, action: \.root)
+        )
+    }
+}

@@ -1,0 +1,50 @@
+import Dependencies
+
+public struct UpdateCheckerClient: Sendable {
+    public var isUpdateRequired: @Sendable (_ currentVersion: String, _ minimumVersion: String) -> Bool
+
+    public init(isUpdateRequired: @escaping @Sendable (_ currentVersion: String, _ minimumVersion: String) -> Bool) {
+        self.isUpdateRequired = isUpdateRequired
+    }
+
+    public static let live = Self(isUpdateRequired: DefaultUpdateChecker.isUpdateRequired)
+}
+
+public enum DefaultUpdateChecker {
+    public static func isUpdateRequired(currentVersion: String, minimumVersion: String) -> Bool {
+        guard !minimumVersion.isEmpty else { return false }
+
+        let currentParts = parse(version: currentVersion)
+        let minimumParts = parse(version: minimumVersion)
+        let maxLength = max(currentParts.count, minimumParts.count)
+
+        for index in 0..<maxLength {
+            let current = index < currentParts.count ? currentParts[index] : 0
+            let minimum = index < minimumParts.count ? minimumParts[index] : 0
+            if current < minimum { return true }
+            if current > minimum { return false }
+        }
+
+        return false
+    }
+
+    private static func parse(version: String) -> [Int] {
+        version
+            .split(separator: ".")
+            .compactMap { part in
+                let numericPart = part.prefix(while: { $0.isNumber })
+                return Int(numericPart)
+            }
+    }
+}
+
+private enum UpdateCheckerKey: DependencyKey {
+    static let liveValue: UpdateCheckerClient = .live
+}
+
+public extension DependencyValues {
+    var updateChecker: UpdateCheckerClient {
+        get { self[UpdateCheckerKey.self] }
+        set { self[UpdateCheckerKey.self] = newValue }
+    }
+}

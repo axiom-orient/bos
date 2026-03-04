@@ -1,0 +1,130 @@
+import SwiftUI
+import ComposableArchitecture
+import Dependencies
+
+@main
+struct {{ name }}App: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @StateObject private var deepLinkStore: DeepLinkStore
+    private let store: StoreOf<AppReducer>
+
+    init() {
+        let deepLinkStore = DeepLinkStore()
+        _deepLinkStore = StateObject(wrappedValue: deepLinkStore)
+
+        prepareDependencies { values in
+            AppComposition.configureAll(&values)
+        }
+
+        self.store = Store(initialState: AppReducer.State()) {
+            AppReducer()
+        }
+
+        appDelegate.configure(deepLinkStore: deepLinkStore)
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            RootView(store: store)
+                .environmentObject(deepLinkStore)
+                .task {
+                    store.send(.view(.appDidLaunch))
+                }
+        }
+    }
+}
+
+private struct RootView: View {
+    @Bindable var store: StoreOf<AppReducer>
+    @EnvironmentObject private var deepLinkStore: DeepLinkStore
+    @Environment(\.scenePhase) private var scenePhase
+
+    var body: some View {
+        Group {
+            switch store.rootViewState {
+            case .splash:
+                SplashView(welcomeMessage: store.localizedWelcomeMessage) {
+                    store.send(.view(.splashAnimationCompleted))
+                }
+
+            case let .maintenance(message):
+                MaintenanceView(
+                    message: message,
+                    onRefresh: { store.send(.view(.retryColdStart)) }
+                )
+
+            case let .forceUpdate(version):
+                ForceUpdateView(
+                    requiredVersion: version,
+                    storeURL: AppConstants.App.appStoreURL
+                )
+
+            case let .error(message):
+                ErrorView(
+                    message: message,
+                    onRetry: { store.send(.view(.retryColdStart)) }
+                )
+
+            case .main:
+                MainScreenView(store: store)
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: store.rootViewState)
+        .onChange(of: scenePhase) { _, newPhase in
+            store.send(.lifecycle(.view(.scenePhaseChanged(newPhase))))
+        }
+        .onAppear {
+            if let url = deepLinkStore.pendingURL {
+                sendDeepLinkToStore(url)
+            }
+        }
+        .onChange(of: deepLinkStore.pendingURL) { _, newURL in
+            if let url = newURL {
+                sendDeepLinkToStore(url)
+            }
+        }
+        .alert($store.scope(state: \.alert, action: \.alert))
+    }
+
+    private func sendDeepLinkToStore(_ url: URL) {
+        store.send(.view(.deepLinkReceived(url)))
+        deepLinkStore.clear()
+    }
+}
+
+private struct ErrorView: View {
+    let message: String
+    let onRetry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            Image(systemName: "wifi.exclamationmark")
+                .font(.system(size: 64))
+                .foregroundStyle(.secondary)
+
+            Text("Connection Error")
+                .font(.title2.bold())
+
+            Text(message)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+
+            Button(action: onRetry) {
+                Text("Retry")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.accentColor)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .padding(.horizontal, 32)
+
+            Spacer()
+        }
+    }
+}

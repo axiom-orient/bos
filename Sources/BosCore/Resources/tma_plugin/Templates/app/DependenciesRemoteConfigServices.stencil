@@ -1,0 +1,84 @@
+import Dependencies
+
+public struct RemoteConfigClient: Sendable {
+    public var string: @Sendable (String) async -> String?
+    public var bool: @Sendable (String) async -> Bool?
+    public var number: @Sendable (String) async -> Double?
+    public var fetchAndActivate: @Sendable () async throws -> Void
+
+    public init(
+        string: @escaping @Sendable (String) async -> String?,
+        bool: @escaping @Sendable (String) async -> Bool?,
+        number: @escaping @Sendable (String) async -> Double?,
+        fetchAndActivate: @escaping @Sendable () async throws -> Void
+    ) {
+        self.string = string
+        self.bool = bool
+        self.number = number
+        self.fetchAndActivate = fetchAndActivate
+    }
+}
+
+private enum RemoteConfigServiceKey: DependencyKey {
+    static let liveValue: RemoteConfigClient = {
+        let actor = InMemoryRemoteConfigActor(
+            strings: [
+                AppConstants.RemoteConfig.forceUpdateMinimumVersionKey: AppConstants.RemoteConfig.defaultForceUpdateMinimumVersion,
+                AppConstants.RemoteConfig.maintenanceMessageKey: AppConstants.RemoteConfig.defaultMaintenanceMessage,
+                AppConstants.RemoteConfig.welcomeMessageKey: AppConstants.RemoteConfig.defaultWelcomeMessage
+            ],
+            bools: [
+                AppConstants.RemoteConfig.maintenanceModeEnabledKey: AppConstants.RemoteConfig.defaultMaintenanceModeEnabled
+            ],
+            numbers: [:]
+        )
+        return RemoteConfigClient(
+            string: { key in await actor.string(forKey: key) },
+            bool: { key in await actor.bool(forKey: key) },
+            number: { key in await actor.number(forKey: key) },
+            fetchAndActivate: { try await actor.fetchAndActivate() }
+        )
+    }()
+
+    static let testValue: RemoteConfigClient = RemoteConfigClient(
+        string: { _ in nil },
+        bool: { _ in nil },
+        number: { _ in nil },
+        fetchAndActivate: { }
+    )
+}
+
+public extension DependencyValues {
+    var remoteConfigService: RemoteConfigClient {
+        get { self[RemoteConfigServiceKey.self] }
+        set { self[RemoteConfigServiceKey.self] = newValue }
+    }
+}
+
+private actor InMemoryRemoteConfigActor {
+    private var strings: [String: String]
+    private var bools: [String: Bool]
+    private var numbers: [String: Double]
+
+    init(strings: [String: String], bools: [String: Bool], numbers: [String: Double]) {
+        self.strings = strings
+        self.bools = bools
+        self.numbers = numbers
+    }
+
+    func fetchAndActivate() async throws {
+        // In-memory default implementation intentionally has no side effects.
+    }
+
+    func string(forKey key: String) -> String? {
+        strings[key]
+    }
+
+    func bool(forKey key: String) -> Bool? {
+        bools[key]
+    }
+
+    func number(forKey key: String) -> Double? {
+        numbers[key]
+    }
+}

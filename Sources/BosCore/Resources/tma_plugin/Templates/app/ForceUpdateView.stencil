@@ -1,0 +1,48 @@
+import SwiftUI
+
+struct ForceUpdateView: View {
+    let requiredVersion: String
+    let storeURL: URL
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            Image(systemName: "arrow.clockwise.circle.fill")
+                .font(.system(size: 60))
+                .foregroundStyle(.orange)
+
+            Text("Update Required")
+                .font(.title2)
+                .bold()
+
+            Text("Update to version \(requiredVersion) or newer.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            Spacer()
+
+            Link(destination: storeURL) {
+                Text("Open App Store")
+                    .bold()
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.orange)
+                    .foregroundStyle(.white)
+                    .cornerRadius(12)
+            }
+            .padding(.horizontal, 40)
+            .padding(.bottom, 40)
+        }
+    }
+}
+
+#if DEBUG
+#Preview {
+    ForceUpdateView(
+        requiredVersion: "2.0.0",
+        storeURL: URL(string: "https://apps.apple.com")!
+    )
+}
+#endif
