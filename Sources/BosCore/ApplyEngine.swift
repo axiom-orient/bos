@@ -607,7 +607,7 @@ extension ApplyEngine {
             managedFiles: [managedPath]
         )
 
-        let artifactsDir = try RuntimeArtifacts.makeDirectory(for: "apply")
+        let artifactsDir = try RuntimeArtifacts.makeDirectory(for: "apply", projectRoot: root)
 
         let artifactPath = artifactsDir.appending(path: "apply-\(RuntimeSupport.timestamp()).json")
         try writeArtifact(

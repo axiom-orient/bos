@@ -1,7 +1,22 @@
+# macOS junk
 .DS_Store
+
+# SwiftPM build artifacts
 .build/
 .swiftpm/
+
+# Xcode local artifacts
 xcuserdata/
+Derived/
+
+# Runtime artifacts
 temp/
+
+# bos runtime outputs (not source of truth)
+.bos/artifacts/
 .bos/plan/
 .bos/state/
+
+# Local-only profile (auto-generated). Keep toolchain policy tracked.
+.bos/config/profile.yaml
+.bos/config/signing.env

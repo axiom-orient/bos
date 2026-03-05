@@ -74,7 +74,7 @@ public struct VerifyEngine {
         let testDestination = simulatorDestinationResolver()
         let steps = makeSteps(policy: policy, testDestination: testDestination)
 
-        let artifactsDir = try RuntimeArtifacts.makeDirectory(for: "verify")
+        let artifactsDir = try RuntimeArtifacts.makeDirectory(for: "verify", projectRoot: root)
 
         let stamp = RuntimeSupport.timestamp()
         let logPath = artifactsDir.appending(path: "verify-\(stamp).log")

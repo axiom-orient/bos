@@ -70,28 +70,39 @@ Apple Team ID: A1B2C3D4E5
 - `doctor`는 toolchain lock을 정책으로 해석한다.
   - `exact`: 완전 일치
   - `semver-range`: 범위 일치(예: `>=6.0 <7.0`)
+- `--for` 생략 시 기본 scope는 `release-init`이다.
 - `requiredFor`에 포함된 명령만 blocking 판정한다.
   - 예: `fastlane`이 `release-init`에만 required면 `--for core` 검사에서는 권고(recommended)만 출력
 - `--for`로 검사 범위를 선택한다.
-  - `core`(기본): `plan/apply/verify`
+  - `release-init`(기본)
+  - `core`: `plan/apply/verify`
   - `all`: `plan/apply/verify/release-init`
   - 개별: `plan|apply|verify|release-init`
-- `--install`: 누락 도구의 설치 명령을 자동 실행 시도(명시 opt-in)
-- lock 파일 없으면 자동 생성 (`.bos/config/toolchain.lock.yaml`)
+- 누락 required 도구 자동 설치를 기본으로 수행한다.
+- lock 파일 없으면 자동 생성 (`config/toolchain.lock.yaml`)
+- lock 경로는 `config/toolchain.lock.yaml`만 지원(`.bos/config/toolchain.lock.yaml` 미지원)
+- signing env 파일 `.bos/config/signing.env`를 자동 로드한다(동일 키의 비어있지 않은 shell env가 우선).
+- signing env 파일이 없으면 템플릿을 자동 생성한다.
+- signing env 템플릿은 owner-only 권한(`0600`)으로 생성/보정한다.
+- fastlane 설치는 `brew install fastlane` 단일 경로를 사용한다.
+  - `brew`가 없으면 Homebrew 설치 스크립트를 먼저 실행한다.
+  - `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
 - `--for release-init` 또는 `--for all`에서는 signing env preflight를 추가로 수행한다.
   - 필수 키: `ASC_ISSUER_ID`, `ASC_KEY_ID`, `ASC_KEY_P8_BASE64`, `MATCH_GIT_URL`, `MATCH_PASSWORD`
   - 형식 규칙: `ASC_ISSUER_ID`(UUID), `ASC_KEY_ID`(대문자/숫자 10자리), `ASC_KEY_P8_BASE64`(base64), `MATCH_GIT_URL`(git/https/ssh)
 
 ## 4) Artifact Policy
 - 프로젝트 루트에는 로그/임시 JSON을 남기지 않음
-- 모든 실행 아티팩트는 `/Users/axient/repository/bos/temp/<command>/<run-id>/` 하위에 on-demand 생성
+- 모든 실행 아티팩트는 `<project-root>/.bos/artifacts/<command>/` 하위에 on-demand 생성
 
 ## 5) Lock/State Path Policy
-- 루트 단순화를 위해 lock/state/plan 파일은 `.bos/` 아래에만 둔다.
+- lock/state/plan 파일은 역할별로 분리한다.
 - 경로:
-  - `.bos/config/toolchain.lock.yaml`
-  - `.bos/config/profile.yaml`
+  - `config/toolchain.lock.yaml`
+  - `.bos/config/signing.env`
   - `.bos/plan/blueprint.yaml`
   - `.bos/state/bos.state.yaml`
+- profile 기본 경로:
+  - `.bos/config/profile.yaml`
 - `verify`/`release-init` 결과는 `.bos/state/bos.state.yaml`의 summary 필드에 동기화된다.
 - 루트에는 `prd.md`, `profile.yaml`를 두지 않는 것을 기본 정책으로 한다.

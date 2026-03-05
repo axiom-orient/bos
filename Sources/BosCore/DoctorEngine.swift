@@ -118,7 +118,7 @@ public struct DoctorEngine: Sendable {
         )
         let blocking = findings.filter { $0.severity == .required && $0.status != .installed }
 
-        let artifactsDir = try RuntimeArtifacts.makeDirectory(for: "doctor")
+        let artifactsDir = try RuntimeArtifacts.makeDirectory(for: "doctor", projectRoot: request.projectRoot)
 
         let stamp = RuntimeSupport.timestamp()
         let jsonPath = artifactsDir.appending(path: "doctor-\(stamp).json")

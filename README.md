@@ -23,36 +23,39 @@ bos doctor
 bos plan --plan-dir ./PLAN --app-identifier com.example.app --apple-team-id ABCD123456
 bos apply --mode init
 bos verify
-# release-init 전 필수 env 설정
-export ASC_ISSUER_ID=123E4567-E89B-12D3-A456-426614174000
-export ASC_KEY_ID=AB12CD34EF
-export ASC_KEY_P8_BASE64=<BASE64_P8_CONTENT>
-export MATCH_GIT_URL=git@github.com:org/certs.git
-export MATCH_PASSWORD=<SECRET>
-bos doctor --for release-init
+# release-init 전 .bos/config/signing.env 값을 채운 뒤 재검증
+bos doctor
 bos release-init
 ```
 
 ## Doctor Policy
 - `toolchain.lock`는 고정 버전 문자열이 아니라 정책으로 해석된다.
 - `--project-root`를 생략하면 **현재 터미널 경로(CWD)** 를 기준으로 동작한다.
-- `--for`를 생략하면 기본값은 `core`(`plan/apply/verify`)다.
-- 기본 검사 범위는 `core`(`plan/apply/verify`)이며, `fastlane` 누락은 `release-init` 전까지 권고 수준이다.
+- `--for`를 생략하면 기본값은 `release-init`이다.
+- 기본 실행은 release 준비를 목표로 동작한다.
+  - `config/toolchain.lock.yaml` 자동 생성
+  - `.bos/config/signing.env` 템플릿 자동 생성(없을 때)
+  - required 도구 자동 설치 시도(기본)
 - 검사 범위:
-  - `--for core` (기본)
+  - `--for release-init` (기본)
+  - `--for core`
   - `--for all`
   - `--for plan|apply|verify|release-init`
-- lock 파일이 없으면 자동으로 `.bos/config/toolchain.lock.yaml`를 생성한다.
+- lock 파일이 없으면 자동으로 `config/toolchain.lock.yaml`를 생성한다.
+- lock 경로는 `config/toolchain.lock.yaml` 단일 경로만 지원한다(`.bos/config/toolchain.lock.yaml` 미지원).
+- signing env는 `.bos/config/signing.env`를 자동 로드한다(동일 키의 비어있지 않은 shell env가 우선).
+- signing env 템플릿은 owner-only 권한(`0600`)으로 생성/보정한다.
 - `--for release-init` 또는 `--for all`에서는 signing env preflight를 수행한다.
   - 필수 키: `ASC_ISSUER_ID`, `ASC_KEY_ID`, `ASC_KEY_P8_BASE64`, `MATCH_GIT_URL`, `MATCH_PASSWORD`
   - 형식: `ASC_ISSUER_ID`(UUID), `ASC_KEY_ID`(대문자/숫자 10자리), `ASC_KEY_P8_BASE64`(base64), `MATCH_GIT_URL`(git/https/ssh URL)
-- 누락 도구 설치:
-  - 안내만: `bos doctor --project-root . --for all`
-  - 자동 설치 시도: `bos doctor --project-root . --for all --install`
+- fastlane 자동 설치 정책:
+  - 1순위: `brew install fastlane`
+  - `brew`가 없으면 Homebrew 설치 스크립트 실행 후 `brew install fastlane`
+    - `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
 
 ### Typical Install Commands
 - Tuist: `brew install tuist`
-- Fastlane: `brew install fastlane` 또는 `gem install fastlane -NV`
+- Fastlane: `brew install fastlane`
 - Swift toolchain: `xcode-select --install` (필요 시 `brew install swift`)
 
 ## Planning Input (Preferred)
@@ -82,8 +85,9 @@ bos release-init
 - 루트 최소 생성물: `Tuist.swift`, `Workspace.swift`, `Tuist/Package.swift`, `Tuist/Plugins/tma/**`
 - 기본 가이드 생성물: `AGENTS.md`, `CLAUDE.md`, `Rules/**`
 - 모듈 생성 위치: `Projects/**/Project.swift` (`Modules/` 폴더 생성 없음)
-- 상태/설정 파일은 숨김 폴더 `.bos/` 하위로 분리:
-  - `.bos/config/toolchain.lock.yaml`
+- 상태/설정 파일 경로:
+  - `config/toolchain.lock.yaml`
+  - `.bos/config/signing.env`
   - `.bos/plan/blueprint.yaml`
   - `.bos/state/bos.state.yaml`
 
@@ -97,8 +101,16 @@ bos release-init
 
 ## Runtime Output Policy
 - 임시 로그/JSON 아티팩트는 프로젝트 루트에 남기지 않음
-- 실행 결과 아티팩트 위치: `/Users/axient/repository/bos/temp/<command>/...` (실행 시점에 on-demand 생성)
+- 실행 결과 아티팩트 위치: `<project-root>/.bos/artifacts/<command>/...` (실행 시점에 on-demand 생성)
 - 입력 정책: 루트에 `prd.md`, `profile.yaml`를 생성하지 않는다. 입력은 `PLAN/`, `docs/`, `.bos/config/` 하위에 둔다.
+
+## Git Tracking Policy (`.bos/`)
+- 커밋 대상:
+  - `config/toolchain.lock.yaml` (팀 공통 toolchain 정책)
+- 커밋 제외:
+  - `.bos/config/profile.yaml` (로컬/환경별 기본 profile)
+  - `.bos/config/signing.env` (로컬 signing secret)
+  - `.bos/plan/**`, `.bos/state/**` (실행 산출물/상태 파일)
 
 ## Repository Layout (Minimal)
 - `Sources/`
@@ -106,7 +118,7 @@ bos release-init
 - `docs/`
 - `Package.swift`
 - `Package.resolved`
-- `.bos/config/toolchain.lock.yaml`
+- `config/toolchain.lock.yaml`
 
 ## Why No `project/` Folder
 - 이 저장소는 Swift Package Manager 기반 CLI이므로 표준 루트 구조(`Package.swift` + `Sources/` + `Tests/`)를 유지한다.

@@ -93,7 +93,7 @@ public struct ReleaseInitEngine: Sendable {
             throw error
         }
 
-        let artifactsDir = try RuntimeArtifacts.makeDirectory(for: "release-init")
+        let artifactsDir = try RuntimeArtifacts.makeDirectory(for: "release-init", projectRoot: root)
         let stamp = RuntimeSupport.timestamp()
         let jsonPath = artifactsDir.appending(path: "release-init-\(stamp).json")
         let logPath = artifactsDir.appending(path: "release-init-\(stamp).log")

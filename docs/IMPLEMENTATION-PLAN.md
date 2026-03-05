@@ -43,7 +43,7 @@
 ## Constraints
 - 구현 우선: 문서 변경은 구현/검증 기준을 설명할 때만 수행
 - 테스트 정확성 우선: flaky/환경 의존 테스트는 통과보다 원인 제거를 우선
-- 호환성: 기존 사용 경로는 명시적으로 끊지 않는 한 유지
+- 호환성: 출시 전 단계에서는 레거시 경로를 유지하지 않고 단일 경로로 정리
 - 실행 환경: 현재는 로컬 검증만 요구, CI 확장 금지
 
 ## Acceptance Checklist
@@ -180,10 +180,21 @@
 ## Evidence Snapshot (현재 기준)
 - 코드 상태: `Sources/BosCLI/main.swift`, `Sources/BosCore/*.swift`
 - 테스트 상태:
-  - `swift test --filter CoreTests.CLIJsonOutputIntegrationTests` 통과(8 tests, 0 failures)
-  - P0 테스트 세트 3회 반복 통과(각 55 tests, 0 failures; 2026-03-05 16:23:53 / 16:25:12 / 16:26:28 KST)
-  - `swift test` 전체 통과(55 tests, 0 failures; 2026-03-05 16:27:50 KST 시작)
+  - `swift test --filter CoreTests.CLIJsonOutputIntegrationTests` 통과(17 tests, 0 failures)
+  - P0 테스트 세트 3회 반복 통과(각 64 tests, 0 failures; 2026-03-05 19:30:59 / 19:32:18 / 19:33:36 KST)
+  - `swift test` 전체 통과(65 tests, 0 failures; 2026-03-05 19:38:13 KST 시작)
 - 이번 사이클 해결:
-  - `CLIJsonOutputIntegrationTests`에서 계약(`contract`)과 실행 실패(`behavior`) 경계를 분리해 `verify` 관련 장시간 대기 이슈 해소
-  - signing preflight를 `release-init`/`doctor`에 공통 적용해 누락/형식 오류를 실행 전 단계에서 명확히 차단
-  - 레거시 `--verbose` 플래그 및 lock 경로 fallback 분기를 제거하고 운영 문서를 최소 세트로 정리
+  - 런타임 아티팩트 경로의 하드코딩을 제거하고 `<project-root>/.bos/artifacts/<command>/` 단일 경로로 통일
+  - signing env 문법 오류를 `doctor`(6) / `release-init`(5) 실패 코드로 분리하고 raw `NSError` 노출을 사용자 메시지로 치환
+  - signing env 템플릿 파일 권한을 owner-only(`0600`)로 생성/보정하고 회귀 테스트로 고정
+  - signing env 파서가 빈 줄/주석을 포함한 원본 줄번호를 그대로 보고하도록 보정
+  - 실행 아티팩트 폴더를 매 실행 초기화하지 않고 최근 N개 보존 정책으로 전환
+  - 보존 정책 상한(최근 120개 유지)이 초과 상황에서 정상 prune되는지 단위 테스트로 고정
+  - `.gitignore`/README/PRODUCT_GUIDE를 새 아티팩트 정책과 권한 정책에 동기화
+
+## Completed Next Slice (Option-2 정밀화)
+- 목표:
+  - signing env 파서가 빈 줄/주석을 포함한 원본 줄번호를 정확히 보고하도록 수정
+  - `.bos/artifacts/<command>/`에 대해 최근 N개 보존(무제한 증가/즉시 삭제 모두 방지)
+- 대상 TASK-ID:
+  - `UX-005`, `OPS-001` (DONE)

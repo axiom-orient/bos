@@ -87,7 +87,7 @@ enum BosCommand: String, CaseIterable {
     var usage: String {
         switch self {
         case .doctor:
-            return "bos doctor [--for core|all|plan|apply|verify|release-init] [--install] [--project-root <path>] [--format human|json]"
+            return "bos doctor [--for core|all|plan|apply|verify|release-init] [--project-root <path>] [--format human|json]"
         case .plan:
             return "bos plan (--prd <path> | --plan-dir <path> [--app-identifier <id>] [--apple-team-id <team>]) [--profile <path>] [--out <blueprint.yaml>] [--project-root <path>] [--format human|json]"
         case .apply:
@@ -270,15 +270,234 @@ func resolveProfilePathOrFail(
 
 func resolveToolchainLockPath(projectRoot: URL) -> URL? {
     let fm = FileManager.default
-    let preferred = projectRoot.appending(path: ".bos/config/toolchain.lock.yaml")
-    if fm.fileExists(atPath: preferred.path(percentEncoded: false)) {
-        return preferred
-    }
-    return nil
+    let preferred = preferredToolchainLockPath(projectRoot: projectRoot)
+    return fm.fileExists(atPath: preferred.path(percentEncoded: false)) ? preferred : nil
 }
 
 func preferredToolchainLockPath(projectRoot: URL) -> URL {
-    projectRoot.appending(path: ".bos/config/toolchain.lock.yaml")
+    projectRoot.appending(path: "config/toolchain.lock.yaml")
+}
+
+enum SigningEnvironmentFileError: Error {
+    case unreadable(path: String, details: String)
+    case invalidLine(line: Int, details: String)
+}
+
+func defaultSigningEnvironmentPath(projectRoot: URL) -> URL {
+    projectRoot.appending(path: ".bos/config/signing.env")
+}
+
+func hardenSigningEnvironmentFilePermissions(at path: URL) {
+    try? FileManager.default.setAttributes(
+        [.posixPermissions: NSNumber(value: Int(0o600))],
+        ofItemAtPath: path.path(percentEncoded: false)
+    )
+}
+
+func signingEnvironmentLoadErrorMessage(_ error: Error, projectRoot: URL) -> String {
+    let path = defaultSigningEnvironmentPath(projectRoot: projectRoot).path(percentEncoded: false)
+    if let signingError = error as? SigningEnvironmentFileError {
+        switch signingError {
+        case .unreadable(let sourcePath, let details):
+            return "failed to read signing env at \(sourcePath): \(details)"
+        case .invalidLine(let line, let details):
+            return "invalid signing env in \(path): line \(line) (\(details))"
+        }
+    }
+    return "failed to load signing env at \(path): \(error.localizedDescription)"
+}
+
+func signingEnvironmentTemplate() -> String {
+    """
+    # bos signing environment (do not commit this file)
+    # Fill all values, then run: bos doctor
+    ASC_ISSUER_ID=
+    ASC_KEY_ID=
+    ASC_KEY_P8_BASE64=
+    MATCH_GIT_URL=
+    MATCH_PASSWORD=
+    """
+}
+
+func ensureSigningEnvironmentTemplate(projectRoot: URL) throws -> (path: URL, created: Bool) {
+    let path = defaultSigningEnvironmentPath(projectRoot: projectRoot)
+    let fm = FileManager.default
+    let filePath = path.path(percentEncoded: false)
+    if fm.fileExists(atPath: filePath) {
+        hardenSigningEnvironmentFilePermissions(at: path)
+        return (path, false)
+    }
+    try writeTextFile(signingEnvironmentTemplate(), to: path)
+    hardenSigningEnvironmentFilePermissions(at: path)
+    return (path, true)
+}
+
+func parseEnvironmentFile(at path: URL) throws -> [String: String] {
+    let text: String
+    do {
+        text = try readTextFile(path)
+    } catch {
+        throw SigningEnvironmentFileError.unreadable(
+            path: path.path(percentEncoded: false),
+            details: error.localizedDescription
+        )
+    }
+    var environment: [String: String] = [:]
+
+    let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    for (index, rawLine) in lines.enumerated() {
+        var line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        if line.isEmpty || line.hasPrefix("#") {
+            continue
+        }
+
+        if line.hasPrefix("export ") {
+            line = String(line.dropFirst("export ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        guard let equals = line.firstIndex(of: "=") else {
+            throw SigningEnvironmentFileError.invalidLine(
+                line: index + 1,
+                details: "expected KEY=VALUE"
+            )
+        }
+
+        let key = line[..<equals].trimmingCharacters(in: .whitespacesAndNewlines)
+        var value = String(line[line.index(after: equals)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if key.isEmpty {
+            throw SigningEnvironmentFileError.invalidLine(
+                line: index + 1,
+                details: "empty key"
+            )
+        }
+
+        if (value.hasPrefix("\"") && value.hasSuffix("\"")) || (value.hasPrefix("'") && value.hasSuffix("'")) {
+            value = String(value.dropFirst().dropLast())
+        }
+
+        environment[key] = value
+    }
+
+    return environment
+}
+
+func mergeProcessEnvironment(
+    processEnvironment: [String: String],
+    fileEnvironment: [String: String]
+) -> [String: String] {
+    var merged = fileEnvironment
+    for (key, value) in processEnvironment {
+        if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            continue
+        }
+        merged[key] = value
+    }
+    return merged
+}
+
+func resolveSigningEnvironment(
+    projectRoot: URL,
+    processEnvironment: [String: String]
+) throws -> (environment: [String: String], note: String?) {
+    let template = try ensureSigningEnvironmentTemplate(projectRoot: projectRoot)
+    let fileEnvironment = try parseEnvironmentFile(at: template.path)
+    let merged = mergeProcessEnvironment(processEnvironment: processEnvironment, fileEnvironment: fileEnvironment)
+
+    if template.created {
+        return (merged, "Created signing env template at \(template.path.path(percentEncoded: false))")
+    }
+    return (merged, nil)
+}
+
+func resolveBrewExecutable() -> String? {
+    if commandExists("brew") {
+        return "brew"
+    }
+
+    let candidates = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+    let fm = FileManager.default
+    return candidates.first { fm.isExecutableFile(atPath: $0) }
+}
+
+func runInstallAttempt(
+    tool: String,
+    commandDescription: String,
+    command: [String],
+    workingDirectory: URL
+) -> DoctorInstallAttempt {
+    do {
+        let result = try runProcess(command: command, workingDirectory: workingDirectory)
+        return DoctorInstallAttempt(
+            tool: tool,
+            command: commandDescription,
+            status: result.status == 0 ? "success" : "failed",
+            exitCode: result.status,
+            stderr: result.stderr
+        )
+    } catch {
+        return DoctorInstallAttempt(
+            tool: tool,
+            command: commandDescription,
+            status: "failed",
+            exitCode: 1,
+            stderr: "\(error)"
+        )
+    }
+}
+
+func installFastlaneWithBrew(projectRoot: URL) -> [DoctorInstallAttempt] {
+    var attempts: [DoctorInstallAttempt] = []
+
+    if let brew = resolveBrewExecutable() {
+        let label = "brew install fastlane"
+        attempts.append(
+            runInstallAttempt(
+                tool: "fastlane",
+                commandDescription: label,
+                command: [brew, "install", "fastlane"],
+                workingDirectory: projectRoot
+            )
+        )
+        return attempts
+    }
+
+    let brewInstallScript = #"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#
+    let bootstrap = runInstallAttempt(
+        tool: "fastlane",
+        commandDescription: brewInstallScript,
+        command: ["/bin/bash", "-lc", brewInstallScript],
+        workingDirectory: projectRoot
+    )
+    attempts.append(bootstrap)
+
+    guard bootstrap.status == "success" else {
+        return attempts
+    }
+
+    guard let brew = resolveBrewExecutable() else {
+        attempts.append(
+            DoctorInstallAttempt(
+                tool: "fastlane",
+                command: "brew install fastlane",
+                status: "skipped-no-runner",
+                exitCode: 127,
+                stderr: "brew installation finished but brew executable is not on PATH"
+            )
+        )
+        return attempts
+    }
+
+    attempts.append(
+        runInstallAttempt(
+            tool: "fastlane",
+            commandDescription: "brew install fastlane",
+            command: [brew, "install", "fastlane"],
+            workingDirectory: projectRoot
+        )
+    )
+
+    return attempts
 }
 
 func decodeToolchainLockV2WithCompatibility(at path: URL) throws -> ToolchainLockV2 {
@@ -537,7 +756,7 @@ func parseDoctorScope(
     command: BosCommand,
     format: OutputFormat
 ) -> DoctorScope {
-    guard let raw else { return .core }
+    guard let raw else { return .releaseInit }
     guard let scope = DoctorScope(rawValue: raw) else {
         fail(
             message: "invalid --for '\(raw)'. expected one of: core, all, plan, apply, verify, release-init",
@@ -616,10 +835,19 @@ func performDoctorAutoInstall(
     var attempts: [DoctorInstallAttempt] = []
 
     let missingTools = findings
-        .filter { $0.status != .installed && $0.tool != "swift" && !$0.installCommands.isEmpty }
+        .filter { $0.severity == .required && $0.status != .installed && $0.tool != "swift" }
         .sorted { $0.tool < $1.tool }
 
     for finding in missingTools {
+        if finding.tool == "fastlane" {
+            attempts.append(contentsOf: installFastlaneWithBrew(projectRoot: projectRoot))
+            continue
+        }
+
+        guard !finding.installCommands.isEmpty else {
+            continue
+        }
+
         var attempted = false
         for rawCommand in finding.installCommands {
             let tokens = tokenizeCommandLine(rawCommand)
@@ -675,21 +903,47 @@ func runDoctor(args: [String], format: OutputFormat) {
     let parsed = parseOptions(
         args: args,
         valueFlags: ["--project-root", "--for", "--format"],
-        booleanFlags: ["--install"]
+        booleanFlags: []
     )
     assertOptionContract(parsed: parsed, command: .doctor, format: format)
 
     let cwd = currentWorkingDirectoryURL()
     let projectRoot = resolvePath(parsed.values["--project-root"] ?? ".", base: cwd)
     let scope = parseDoctorScope(raw: parsed.values["--for"], command: .doctor, format: format)
-    let shouldInstall = parsed.flags.contains("--install")
     var initializationNote: String?
+    let processEnvironment = ProcessInfo.processInfo.environment
+    let autoInstallEnabled = !["0", "false", "no"].contains(
+        processEnvironment["BOS_AUTO_INSTALL"]?.lowercased() ?? ""
+    )
+
+    let signingEnvironment: [String: String]
+    if scope.commands.contains(ToolchainLockV2.commandReleaseInit) {
+        do {
+            let resolved = try resolveSigningEnvironment(
+                projectRoot: projectRoot,
+                processEnvironment: processEnvironment
+            )
+            signingEnvironment = resolved.environment
+            if let note = resolved.note {
+                initializationNote = note
+            }
+        } catch {
+            fail(
+                message: signingEnvironmentLoadErrorMessage(error, projectRoot: projectRoot),
+                command: .doctor,
+                format: format,
+                exitCode: .doctorFailed
+            )
+        }
+    } else {
+        signingEnvironment = processEnvironment
+    }
 
     let lockPath: URL
     if let existingLockPath = resolveToolchainLockPath(projectRoot: projectRoot) {
         lockPath = existingLockPath
     } else {
-        let env = ProcessInfo.processInfo.environment
+        let env = processEnvironment
         let tma = try? ToolchainLockV2.TMAPluginRef(
             type: env["TMA_PLUGIN_REF_TYPE"] ?? "git-sha",
             value: env["TMA_PLUGIN_REF_VALUE"] ?? "unknown"
@@ -709,7 +963,12 @@ func runDoctor(args: [String], format: OutputFormat) {
             let destination = preferredToolchainLockPath(projectRoot: projectRoot)
             try writeTextFile(encoded, to: destination)
             lockPath = destination
-            initializationNote = "Initialized toolchain lock at \(destination.path(percentEncoded: false))"
+            let initMessage = "Initialized toolchain lock at \(destination.path(percentEncoded: false))"
+            if let existingNote = initializationNote {
+                initializationNote = "\(existingNote). \(initMessage)"
+            } else {
+                initializationNote = initMessage
+            }
         } catch {
             fail(message: "failed to initialize toolchain lock: \(error)", command: .doctor, format: format)
         }
@@ -737,31 +996,30 @@ func runDoctor(args: [String], format: OutputFormat) {
                 lock: lock,
                 detected: initialDetected,
                 checkCommands: scope.commands,
-                environment: ProcessInfo.processInfo.environment
+                environment: signingEnvironment
             )
         )
     } catch {
         fail(message: "\(error)", command: .doctor, format: format)
     }
 
-    var installAttempts: [DoctorInstallAttempt] = []
-    if shouldInstall {
-        installAttempts = performDoctorAutoInstall(findings: result.findings, projectRoot: projectRoot)
-        if !installAttempts.isEmpty {
-            do {
-                let detectedAfterInstall = try detectToolchain(lock: lock)
-                result = try DoctorEngine().check(
-                    request: DoctorRequest(
-                        projectRoot: projectRoot,
-                        lock: lock,
-                        detected: detectedAfterInstall,
-                        checkCommands: scope.commands,
-                        environment: ProcessInfo.processInfo.environment
-                    )
+    let installAttempts = autoInstallEnabled
+        ? performDoctorAutoInstall(findings: result.findings, projectRoot: projectRoot)
+        : []
+    if !installAttempts.isEmpty {
+        do {
+            let detectedAfterInstall = try detectToolchain(lock: lock)
+            result = try DoctorEngine().check(
+                request: DoctorRequest(
+                    projectRoot: projectRoot,
+                    lock: lock,
+                    detected: detectedAfterInstall,
+                    checkCommands: scope.commands,
+                    environment: signingEnvironment
                 )
-            } catch {
-                fail(message: "\(error)", command: .doctor, format: format)
-            }
+            )
+        } catch {
+            fail(message: "\(error)", command: .doctor, format: format)
         }
     }
 
@@ -1159,6 +1417,21 @@ func runReleaseInit(args: [String], format: OutputFormat) {
         format: format
     )
 
+    let signingContext: (environment: [String: String], note: String?)
+    do {
+        signingContext = try resolveSigningEnvironment(
+            projectRoot: projectRoot,
+            processEnvironment: ProcessInfo.processInfo.environment
+        )
+    } catch {
+        fail(
+            message: signingEnvironmentLoadErrorMessage(error, projectRoot: projectRoot),
+            command: .releaseInit,
+            format: format,
+            exitCode: .releaseInitFailed
+        )
+    }
+
     do {
         let blueprint = try decodeYAMLOrJSON(BlueprintV1.self, at: blueprintPath)
         let profile = try decodeYAMLOrJSON(ProfileV1.self, at: profilePath)
@@ -1167,10 +1440,16 @@ func runReleaseInit(args: [String], format: OutputFormat) {
                 projectRoot: projectRoot,
                 blueprint: blueprint,
                 profile: profile,
-                environment: ProcessInfo.processInfo.environment
+                environment: signingContext.environment
             )
         )
-        let summary = "release-init completed with \(result.generatedFiles.count) generated files"
+        let summaryBase = "release-init completed with \(result.generatedFiles.count) generated files"
+        let summary: String
+        if let note = signingContext.note {
+            summary = "\(note). \(summaryBase)"
+        } else {
+            summary = summaryBase
+        }
         switch format {
         case .human:
             renderHumanSuccess(summary: summary, artifacts: result.artifacts + result.generatedFiles)
@@ -1188,9 +1467,11 @@ func runReleaseInit(args: [String], format: OutputFormat) {
         let summary: String
         switch error {
         case .missingRequiredEnvironment(let keys):
-            summary = "missing required environment: \(keys.joined(separator: ", "))"
+            let path = defaultSigningEnvironmentPath(projectRoot: projectRoot).path(percentEncoded: false)
+            summary = "missing required environment: \(keys.joined(separator: ", ")). set values in \(path) or shell environment"
         case .invalidEnvironmentFormat(let details):
-            summary = "invalid environment format: \(details.joined(separator: ", "))"
+            let path = defaultSigningEnvironmentPath(projectRoot: projectRoot).path(percentEncoded: false)
+            summary = "invalid environment format: \(details.joined(separator: ", ")). check \(path)"
         case .laneParseFailed(let path):
             summary = "failed to parse fastlane lanes from \(path)"
         }
