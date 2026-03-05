@@ -3,23 +3,108 @@ import XCTest
 @testable import BosCore
 
 final class CLIJsonOutputIntegrationTests: XCTestCase {
+    // Contract intent: malformed CLI options must fail fast with parseable JSON
+    // without touching external tools.
     func testCommandsReturnParseableJSONOnContractErrors() throws {
         let cases: [(command: String, args: [String])] = [
             ("doctor", ["doctor", "--project-root", "--format", "json"]),
-            ("plan", ["plan", "--format", "json"]),
-            ("apply", ["apply", "--format", "json"]),
-            ("verify", ["verify", "--format", "json"]),
-            ("release-init", ["release-init", "--format", "json"])
+            ("plan", ["plan", "--prd", "--format", "json"]),
+            ("apply", ["apply", "--blueprint", "--format", "json"]),
+            ("verify", ["verify", "--project-root", "--format", "json"]),
+            ("release-init", ["release-init", "--blueprint", "--format", "json"])
         ]
 
         for item in cases {
-            let result = try runBootstrap(args: item.args)
+            let result = try runBootstrap(args: item.args, timeoutSeconds: 10)
             XCTAssertEqual(result.status, 2, "unexpected exit for command=\(item.command)")
             let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(result.stdout.utf8))
             XCTAssertEqual(payload.command, item.command)
             XCTAssertEqual(payload.status, "failed")
             XCTAssertEqual(payload.exitCode, 2)
         }
+    }
+
+    // Behavior intent: verify execution failure must still return parseable JSON
+    // with verify-specific failure code and summary.
+    func testVerifyReturnsParseableJSONOnExecutionFailure() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = try runBootstrap(
+            args: [
+                "verify",
+                "--project-root", root.path(percentEncoded: false),
+                "--format", "json"
+            ],
+            cwd: root,
+            environment: ["PATH": "/nonexistent"],
+            timeoutSeconds: 20
+        )
+        XCTAssertEqual(result.status, 4)
+
+        let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(result.stdout.utf8))
+        XCTAssertEqual(payload.command, "verify")
+        XCTAssertEqual(payload.status, "failed")
+        XCTAssertEqual(payload.exitCode, 4)
+        XCTAssertTrue(payload.summary.contains("verify failed at"))
+    }
+
+    func testReleaseInitReturnsParseableJSONOnInvalidEnvironmentFormat() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let prd = root.appending(path: "PRD.md")
+        try Data(
+            """
+            Project: Daycraft
+            App Identifier: com.axiomorient.daycraft
+            Apple Team ID: A1B2C3D4E5
+
+            Requirements
+            - REQ-001 홈 화면 진입
+
+            Screens
+            - SCR_TODAY_HOME
+
+            Entities
+            - Entity: User
+            """.utf8
+        ).write(to: prd, options: .atomic)
+
+        let planResult = try runBootstrap(
+            args: [
+                "plan",
+                "--project-root", root.path(percentEncoded: false),
+                "--prd", "PRD.md",
+                "--format", "json"
+            ],
+            cwd: root
+        )
+        XCTAssertEqual(planResult.status, 0)
+
+        let releaseInitResult = try runBootstrap(
+            args: [
+                "release-init",
+                "--project-root", root.path(percentEncoded: false),
+                "--blueprint", ".bos/plan/blueprint.yaml",
+                "--format", "json"
+            ],
+            cwd: root,
+            environment: [
+                "ASC_ISSUER_ID": "issuer-id",
+                "ASC_KEY_ID": "bad",
+                "ASC_KEY_P8_BASE64": "not-base64",
+                "MATCH_GIT_URL": "ftp://example.com/repo",
+                "MATCH_PASSWORD": "secret"
+            ]
+        )
+        XCTAssertEqual(releaseInitResult.status, 5)
+
+        let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(releaseInitResult.stdout.utf8))
+        XCTAssertEqual(payload.command, "release-init")
+        XCTAssertEqual(payload.status, "failed")
+        XCTAssertEqual(payload.exitCode, 5)
+        XCTAssertTrue(payload.summary.contains("invalid environment format"))
     }
 
     func testPlanSupportsPlanDirectoryInputWithMetadataOverrides() throws {
@@ -126,9 +211,9 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root,
             environment: [
-                "ASC_ISSUER_ID": "issuer-id",
-                "ASC_KEY_ID": "key-id",
-                "ASC_KEY_P8_BASE64": "key-base64",
+                "ASC_ISSUER_ID": "123E4567-E89B-12D3-A456-426614174000",
+                "ASC_KEY_ID": "AB12CD34EF",
+                "ASC_KEY_P8_BASE64": "c3VwZXItc2VjcmV0",
                 "MATCH_GIT_URL": "git@github.com:org/certs.git",
                 "MATCH_PASSWORD": "secret"
             ]
@@ -251,9 +336,9 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root,
             environment: [
-                "ASC_ISSUER_ID": "issuer-id",
-                "ASC_KEY_ID": "key-id",
-                "ASC_KEY_P8_BASE64": "key-base64",
+                "ASC_ISSUER_ID": "123E4567-E89B-12D3-A456-426614174000",
+                "ASC_KEY_ID": "AB12CD34EF",
+                "ASC_KEY_P8_BASE64": "c3VwZXItc2VjcmV0",
                 "MATCH_GIT_URL": "git@github.com:org/certs.git",
                 "MATCH_PASSWORD": "secret"
             ]
@@ -339,7 +424,6 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             args: [
                 "doctor",
                 "--project-root", root.path(percentEncoded: false),
-                "--init-lock",
                 "--format", "json"
             ],
             cwd: root
@@ -440,28 +524,73 @@ private extension CLIJsonOutputIntegrationTests {
     func runBootstrap(
         args: [String],
         cwd: URL? = nil,
-        environment: [String: String] = [:]
+        environment: [String: String] = [:],
+        timeoutSeconds: TimeInterval = 60
     ) throws -> ProcessResult {
+        let fm = FileManager.default
         let process = Process()
         process.executableURL = try bootstrapBinaryURL()
         process.arguments = args
         process.currentDirectoryURL = cwd ?? repositoryRoot()
         process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
 
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        let captureDir = fm.temporaryDirectory
+            .appendingPathComponent("bos-cli-capture-\(ProcessInfo.processInfo.globallyUniqueString)", isDirectory: true)
+        let stdoutPath = captureDir.appending(path: "stdout.log")
+        let stderrPath = captureDir.appending(path: "stderr.log")
+        try fm.createDirectory(at: captureDir, withIntermediateDirectories: true)
+        fm.createFile(atPath: stdoutPath.path(percentEncoded: false), contents: nil)
+        fm.createFile(atPath: stderrPath.path(percentEncoded: false), contents: nil)
+
+        let stdoutHandle = try FileHandle(forWritingTo: stdoutPath)
+        let stderrHandle = try FileHandle(forWritingTo: stderrPath)
+        defer {
+            try? stdoutHandle.close()
+            try? stderrHandle.close()
+            try? fm.removeItem(at: captureDir)
+        }
+        process.standardOutput = stdoutHandle
+        process.standardError = stderrHandle
 
         try process.run()
-        process.waitUntilExit()
+        let exited = waitForExit(process, timeoutSeconds: timeoutSeconds)
+        if !exited {
+            if process.isRunning {
+                process.terminate()
+            }
+            _ = waitForExit(process, timeoutSeconds: 2)
+            if process.isRunning {
+                process.interrupt()
+            }
+            _ = waitForExit(process, timeoutSeconds: 2)
+            throw NSError(
+                domain: "CLIJsonOutputIntegrationTests",
+                code: 2,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "process timeout (\(Int(timeoutSeconds))s): bos \(args.joined(separator: " "))"
+                ]
+            )
+        }
 
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        try stdoutHandle.close()
+        try stderrHandle.close()
+
+        let stdoutData = try Data(contentsOf: stdoutPath)
+        let stderrData = try Data(contentsOf: stderrPath)
         let stdout = String(decoding: stdoutData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         let stderr = String(decoding: stderrData, as: UTF8.self)
 
         return ProcessResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
+    }
+
+    func waitForExit(_ process: Process, timeoutSeconds: TimeInterval) -> Bool {
+        let group = DispatchGroup()
+        group.enter()
+        DispatchQueue.global(qos: .utility).async {
+            process.waitUntilExit()
+            group.leave()
+        }
+        return group.wait(timeout: .now() + timeoutSeconds) == .success
     }
 
     func makeTempDir() throws -> URL {

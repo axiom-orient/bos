@@ -37,9 +37,12 @@ final class ReleaseInitEngineIntegrationTests: XCTestCase {
         XCTAssertTrue(appfileContent.contains("team_id(\"A1B2C3D4E5\")"))
 
         let fastfileContent = try String(contentsOf: fastfile, encoding: .utf8)
+        XCTAssertTrue(fastfileContent.contains("private_lane :asc_api_key do"))
         XCTAssertTrue(fastfileContent.contains("lane :certs do"))
+        XCTAssertTrue(fastfileContent.contains("sync_code_signing(type: \"appstore\", readonly: false, api_key: asc_api_key)"))
         XCTAssertTrue(fastfileContent.contains("lane :build do"))
         XCTAssertTrue(fastfileContent.contains("lane :beta do"))
+        XCTAssertTrue(fastfileContent.contains("api_key = asc_api_key"))
         XCTAssertTrue(fastfileContent.contains("lane :release do"))
         XCTAssertTrue(fastfileContent.contains("lane :release_metadata do"))
 
@@ -71,6 +74,36 @@ final class ReleaseInitEngineIntegrationTests: XCTestCase {
                 return XCTFail("unexpected error: \(error)")
             }
             XCTAssertEqual(keys, ["ASC_KEY_ID", "MATCH_PASSWORD"])
+        }
+    }
+
+    func testReleaseInitFailsWhenRequiredEnvironmentFormatIsInvalid() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var env = requiredEnvironment()
+        env["ASC_ISSUER_ID"] = "issuer-id"
+        env["ASC_KEY_ID"] = "bad"
+        env["ASC_KEY_P8_BASE64"] = "not-base64"
+        env["MATCH_GIT_URL"] = "ftp://example.com/repo"
+
+        XCTAssertThrowsError(
+            try engine.releaseInit(
+                request: ReleaseInitRequest(
+                    projectRoot: root,
+                    blueprint: try makeBlueprint(),
+                    profile: try makeProfile(name: "daycraft"),
+                    environment: env
+                )
+            )
+        ) { error in
+            guard case ReleaseInitEngineError.invalidEnvironmentFormat(let details) = error else {
+                return XCTFail("unexpected error: \(error)")
+            }
+            XCTAssertTrue(details.contains("ASC_ISSUER_ID(UUID format)"))
+            XCTAssertTrue(details.contains("ASC_KEY_ID(10 uppercase letters/digits)"))
+            XCTAssertTrue(details.contains("ASC_KEY_P8_BASE64(valid base64-encoded key content)"))
+            XCTAssertTrue(details.contains("MATCH_GIT_URL(git@host:path(.git) or https://... or ssh://...)"))
         }
     }
 
@@ -137,9 +170,9 @@ private extension ReleaseInitEngineIntegrationTests {
 
     func requiredEnvironment() -> [String: String] {
         [
-            "ASC_ISSUER_ID": "issuer-id",
-            "ASC_KEY_ID": "key-id",
-            "ASC_KEY_P8_BASE64": "super-secret",
+            "ASC_ISSUER_ID": "123E4567-E89B-12D3-A456-426614174000",
+            "ASC_KEY_ID": "AB12CD34EF",
+            "ASC_KEY_P8_BASE64": "c3VwZXItc2VjcmV0",
             "MATCH_GIT_URL": "git@github.com:org/certs.git",
             "MATCH_PASSWORD": "match-secret"
         ]

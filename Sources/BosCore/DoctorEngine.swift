@@ -67,17 +67,20 @@ public struct DoctorRequest: Sendable {
     public let lock: ToolchainLockV2
     public let detected: DetectedToolchainV2
     public let checkCommands: [String]
+    public let environment: [String: String]
 
     public init(
         projectRoot: URL,
         lock: ToolchainLockV2,
         detected: DetectedToolchainV2,
-        checkCommands: [String]
+        checkCommands: [String],
+        environment: [String: String] = [:]
     ) {
         self.projectRoot = projectRoot
         self.lock = lock
         self.detected = detected
         self.checkCommands = checkCommands
+        self.environment = environment
     }
 }
 
@@ -107,7 +110,12 @@ public struct DoctorEngine: Sendable {
     public init() {}
 
     public func check(request: DoctorRequest) throws -> DoctorResult {
-        let findings = buildFindings(lock: request.lock, detected: request.detected, checkCommands: request.checkCommands)
+        let findings = buildFindings(
+            lock: request.lock,
+            detected: request.detected,
+            checkCommands: request.checkCommands,
+            environment: request.environment
+        )
         let blocking = findings.filter { $0.severity == .required && $0.status != .installed }
 
         let artifactsDir = try RuntimeArtifacts.makeDirectory(for: "doctor")
@@ -198,7 +206,8 @@ extension DoctorEngine {
     private func buildFindings(
         lock: ToolchainLockV2,
         detected: DetectedToolchainV2,
-        checkCommands: [String]
+        checkCommands: [String],
+        environment: [String: String]
     ) -> [DoctorFinding] {
         let scope = Set(checkCommands)
 
@@ -246,8 +255,68 @@ extension DoctorEngine {
                 installCommands: []
             )
         )
+        findings.append(
+            signingEnvironmentFinding(
+                scope: scope,
+                environment: environment
+            )
+        )
 
         return findings
+    }
+
+    private func signingEnvironmentFinding(
+        scope: Set<String>,
+        environment: [String: String]
+    ) -> DoctorFinding {
+        let check = SigningEnvironmentPolicy.validate(environment: environment)
+        let isReleaseRequested = scope.contains(ToolchainLockV2.commandReleaseInit)
+        let severity: DoctorSeverity = isReleaseRequested ? .required : .recommended
+
+        let status: DoctorFindingStatus
+        if !check.missingKeys.isEmpty {
+            status = .missing
+        } else if !check.invalidIssues.isEmpty {
+            status = .incompatible
+        } else {
+            status = .installed
+        }
+
+        let actualVersion: String
+        if status == .installed {
+            actualVersion = "valid"
+        } else {
+            var fragments: [String] = []
+            if !check.missingKeys.isEmpty {
+                fragments.append("missing=\(check.missingKeys.joined(separator: ","))")
+            }
+            if !check.invalidIssues.isEmpty {
+                let invalid = check.invalidIssues.map { "\($0.key)(\($0.rule))" }.joined(separator: ",")
+                fragments.append("invalid=\(invalid)")
+            }
+            actualVersion = fragments.joined(separator: ";")
+        }
+
+        let action: String
+        switch status {
+        case .installed:
+            action = "No action required"
+        case .missing:
+            action = "Set required signing environment keys before release-init"
+        case .incompatible:
+            action = "Fix signing environment formats before release-init"
+        }
+
+        return DoctorFinding(
+            tool: "signing-env",
+            severity: severity,
+            status: status,
+            expectedRule: SigningEnvironmentPolicy.expectedRuleSummary,
+            actualVersion: actualVersion,
+            requiredFor: [ToolchainLockV2.commandReleaseInit],
+            action: action,
+            installCommands: []
+        )
     }
 
     private func evaluate(

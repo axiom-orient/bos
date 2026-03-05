@@ -77,7 +77,10 @@ Apple Team ID: A1B2C3D4E5
   - `all`: `plan/apply/verify/release-init`
   - 개별: `plan|apply|verify|release-init`
 - `--install`: 누락 도구의 설치 명령을 자동 실행 시도(명시 opt-in)
-- `--init-lock`: lock이 없을 때 `.bos/config/toolchain.lock.yaml` 초기 생성
+- lock 파일 없으면 자동 생성 (`.bos/config/toolchain.lock.yaml`)
+- `--for release-init` 또는 `--for all`에서는 signing env preflight를 추가로 수행한다.
+  - 필수 키: `ASC_ISSUER_ID`, `ASC_KEY_ID`, `ASC_KEY_P8_BASE64`, `MATCH_GIT_URL`, `MATCH_PASSWORD`
+  - 형식 규칙: `ASC_ISSUER_ID`(UUID), `ASC_KEY_ID`(대문자/숫자 10자리), `ASC_KEY_P8_BASE64`(base64), `MATCH_GIT_URL`(git/https/ssh)
 
 ## 4) Artifact Policy
 - 프로젝트 루트에는 로그/임시 JSON을 남기지 않음
@@ -90,6 +93,5 @@ Apple Team ID: A1B2C3D4E5
   - `.bos/config/profile.yaml`
   - `.bos/plan/blueprint.yaml`
   - `.bos/state/bos.state.yaml`
-- `doctor`는 신규 경로를 우선 사용하고, 레거시 `toolchain.lock.yaml`은 fallback으로만 읽는다.
 - `verify`/`release-init` 결과는 `.bos/state/bos.state.yaml`의 summary 필드에 동기화된다.
 - 루트에는 `prd.md`, `profile.yaml`를 두지 않는 것을 기본 정책으로 한다.

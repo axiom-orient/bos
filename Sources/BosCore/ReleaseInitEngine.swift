@@ -27,6 +27,7 @@ public struct ReleaseInitResult: Sendable {
 
 public enum ReleaseInitEngineError: Error, Equatable {
     case missingRequiredEnvironment(keys: [String])
+    case invalidEnvironmentFormat(details: [String])
     case laneParseFailed(path: String)
 }
 
@@ -35,15 +36,25 @@ public struct ReleaseInitEngine: Sendable {
 
     public func releaseInit(request: ReleaseInitRequest) throws -> ReleaseInitResult {
         let root = request.projectRoot.standardizedFileURL
-        let missing = missingRequiredEnvironment(in: request.environment)
-        if !missing.isEmpty {
+        let envCheck = SigningEnvironmentPolicy.validate(environment: request.environment)
+        if !envCheck.missingKeys.isEmpty {
             BosStateStore.updateSummary(
                 projectRoot: root,
                 kind: .release,
                 status: "failed",
-                message: "missing required environment: \(missing.joined(separator: ", "))"
+                message: "missing required environment: \(envCheck.missingKeys.joined(separator: ", "))"
             )
-            throw ReleaseInitEngineError.missingRequiredEnvironment(keys: missing)
+            throw ReleaseInitEngineError.missingRequiredEnvironment(keys: envCheck.missingKeys)
+        }
+        if !envCheck.invalidIssues.isEmpty {
+            let details = envCheck.invalidIssues.map { "\($0.key)(\($0.rule))" }
+            BosStateStore.updateSummary(
+                projectRoot: root,
+                kind: .release,
+                status: "failed",
+                message: "invalid environment format: \(details.joined(separator: ", "))"
+            )
+            throw ReleaseInitEngineError.invalidEnvironmentFormat(details: details)
         }
 
         let fm = FileManager.default
@@ -116,13 +127,6 @@ public struct ReleaseInitEngine: Sendable {
 
 extension ReleaseInitEngine {
     private enum Constant {
-        static let requiredEnvKeys = [
-            "ASC_ISSUER_ID",
-            "ASC_KEY_ID",
-            "ASC_KEY_P8_BASE64",
-            "MATCH_GIT_URL",
-            "MATCH_PASSWORD"
-        ]
         static let defaultLanes = ["certs", "build", "beta", "release", "release_metadata"]
     }
 
@@ -134,14 +138,6 @@ extension ReleaseInitEngine {
         let lanes: [String]
         let generatedFiles: [String]
         let artifacts: [String]
-    }
-
-    private func missingRequiredEnvironment(in environment: [String: String]) -> [String] {
-        Constant.requiredEnvKeys.filter { key in
-            guard let value = environment[key] else { return true }
-            return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-        .sorted()
     }
 
     private func parseLanes(from fastfilePath: URL) throws -> [String] {
@@ -167,8 +163,17 @@ extension ReleaseInitEngine {
         require 'base64'
 
         platform :ios do
+          private_lane :asc_api_key do
+            app_store_connect_api_key(
+              key_id: ENV["ASC_KEY_ID"],
+              issuer_id: ENV["ASC_ISSUER_ID"],
+              key_content: Base64.decode64(ENV["ASC_KEY_P8_BASE64"]),
+              is_key_content_base64: false
+            )
+          end
+
           lane :certs do
-            match(type: "appstore", readonly: false)
+            sync_code_signing(type: "appstore", readonly: false, api_key: asc_api_key)
           end
 
           lane :build do
@@ -176,22 +181,12 @@ extension ReleaseInitEngine {
           end
 
           lane :beta do
-            api_key = app_store_connect_api_key(
-              key_id: ENV["ASC_KEY_ID"],
-              issuer_id: ENV["ASC_ISSUER_ID"],
-              key_content: Base64.decode64(ENV["ASC_KEY_P8_BASE64"]),
-              is_key_content_base64: false
-            )
+            api_key = asc_api_key
             pilot(api_key: api_key, ipa: ENV["IPA_PATH"], skip_waiting_for_build_processing: true)
           end
 
           lane :release do
-            api_key = app_store_connect_api_key(
-              key_id: ENV["ASC_KEY_ID"],
-              issuer_id: ENV["ASC_ISSUER_ID"],
-              key_content: Base64.decode64(ENV["ASC_KEY_P8_BASE64"]),
-              is_key_content_base64: false
-            )
+            api_key = asc_api_key
             deliver(api_key: api_key, submit_for_review: false)
           end
 
@@ -258,7 +253,7 @@ extension ReleaseInitEngine {
             "# bos release-init",
             "profile=\(profileName)",
             "projectRoot=\(projectRoot)",
-            "requiredEnvChecked=\(Constant.requiredEnvKeys.joined(separator: ","))",
+            "requiredEnvChecked=\(SigningEnvironmentPolicy.requiredKeys.joined(separator: ","))",
             "generatedFiles=",
             generatedFiles.map { "- \($0)" }.joined(separator: "\n"),
             "lanes=\(lanes.joined(separator: ","))",

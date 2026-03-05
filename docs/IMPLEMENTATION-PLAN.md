@@ -1,98 +1,189 @@
-# Implementation Plan
+# Implementation Plan: 실구현 우선 프로젝트 완성 (2026-03-05)
+
+## Why-How-What
+- Why: 사용자가 최소 명령으로 예측 가능한 결과를 얻고, 테스트가 실제 동작을 정확히 증명해야 한다.
+- How: 명령 계약을 먼저 고정하고, 테스트를 계약/행동/통합으로 분리한 뒤, 레거시 코드와 문서를 최소화한다.
+- What: `verify` 계약 회귀 정리, 테스트 의도 재정렬, 레거시 제거, 최종 출시 게이트 확정.
+
+## StoryBrand 7 (요약)
+| 항목 | 내용 |
+|---|---|
+| Character | `bos`를 처음 쓰는 iOS 개발자 |
+| Problem | 명령 계약이 불명확하면 테스트가 환경 의존으로 흔들리고 출시 판단이 모호해짐 |
+| Guide | `bos` 코어팀(명령 계약 + 테스트 기준 제공) |
+| Plan | 계약 고정 → 테스트 분리/정밀화 → 레거시 제거 → 출시 게이트 통과 |
+| CTA | 로컬에서 재현 가능한 증거 기반으로 출시 여부 결정 |
+| Success | “무엇이 실패했고 왜 실패했는지”가 즉시 보이는 최소 인터페이스 |
+| Failure | 테스트가 실제 의도와 어긋나 장시간 대기/오판정 발생 |
 
 ## Goal
-사용자 환경 차이(도구 버전/설치 유무)를 허용하면서도 `bos`의 동작 결과를 단순하고 예측 가능하게 유지한다.  
-핵심은 `doctor`를 "정확한 실패 이유 + 즉시 실행 가능한 조치" 중심으로 재설계하는 것이다.
+- 구현을 우선으로 유지하면서 테스트 의도와 검증 대상을 1:1로 맞춘다.
+- CI 확장은 당분간 제외하고, 로컬/통합 테스트만으로 출시 판정을 가능하게 한다.
+- 불필요한 문서/레거시 코드를 정리해 운영 기준 문서를 최소 세트로 축소한다.
+
+## Done (완료 정의)
+- `verify` 계약이 명시되고 관련 테스트가 deterministic하게 종료된다.
+- 테스트가 `계약 검증`과 `실동작 검증`으로 분리되어 각 실패 원인이 즉시 식별된다.
+- 레거시 플래그/문서/중복 계획서가 정리되어 기준 문서가 `README`, `docs/PRODUCT_GUIDE.md`, `docs/IMPLEMENTATION-PLAN.md`, `docs/TASKS.md`로 수렴된다.
+- `docs/UX_REDESIGN.md`의 유효 내용을 기준 문서로 이관한 뒤 파일을 제거한다.
+- 출시 게이트 체크리스트를 모두 만족하는 증거(명령 출력/테스트 로그/파일)가 남는다.
+- 출시 직전 `P0/P1`의 `TODO/DOING/BLOCKED`가 0개다.
 
 ## Scope
-- `toolchain.lock` 정책 개편 (exact pin -> 호환 범위 + 명령별 요구사항)
-- `doctor` 판정 모델 개편 (필수/권장/정보 레벨)
-- 미설치 도구 설치 권유 메시지 표준화
-- 선택적 자동 설치 진입점(`--install`) 설계
-- lock 부재 초기화 경로(`--init-lock`) 설계
-- `apply(init)` bootstrap 문서(`AGENTS.md`, `CLAUDE.md`, `Rules/`) 기본 복사
-- `Tuist/Package.swift` 기본 의존성 세트 표준화
+- 포함:
+  - CLI 계약 정리(`doctor/plan/apply/verify/release-init`)
+  - 테스트 의도 정밀화 및 회귀 방지
+  - 문서/레거시 정리 계획 수립 및 실행 큐 정의
+  - 출시 게이트 정의
+- 제외:
+  - 신규 CI 파이프라인 구축/확장
+  - 대규모 신기능(`bos init` interactive, `--smoke`, `--run-certs`) 즉시 구현
+  - 외부 리포지토리(Aether 등) 동시 리팩터링
 
 ## Constraints
-- 기존 `.bos/{config|plan|state}` 경로 정책 유지
-- 기존 명령 계약(`plan/apply/verify/release-init`)은 후방 호환 우선
-- 자동 설치는 명시적 opt-in 플래그 없이는 절대 수행하지 않음
-- 네트워크/패키지 매니저 실패 시에도 오류 원인과 수동 명령을 반드시 출력
-- macOS 우선 지원, 타 OS는 "가이드 출력만"부터 시작
+- 구현 우선: 문서 변경은 구현/검증 기준을 설명할 때만 수행
+- 테스트 정확성 우선: flaky/환경 의존 테스트는 통과보다 원인 제거를 우선
+- 호환성: 기존 사용 경로는 명시적으로 끊지 않는 한 유지
+- 실행 환경: 현재는 로컬 검증만 요구, CI 확장 금지
+
+## Acceptance Checklist
+- [x] 계약 테스트가 외부 툴(`tuist`, `xcodebuild`) 실행 없이 완료된다.
+- [x] 행동/통합 테스트는 외부 툴 호출을 허용하되 타임아웃/실패 분류 기준이 있다.
+- [x] `docs/IMPLEMENTATION-PLAN.md`와 `docs/TASKS.md`가 실제 코드 상태와 일치한다.
+- [x] `docs/UX_REDESIGN.md`가 기준 문서로 병합된 뒤 삭제된다.
+- [x] 출시 판단에 필요한 필수 테스트 세트와 명령 로그가 정의된다.
+
+## Out of Scope
+- GitHub Actions, 원격 캐시, 병렬 CI 매트릭스 최적화
+- 릴리즈 자동화 신기능(`release-init --run-certs`) 구현 자체
+- UX 카피/브랜딩 문구 고도화
 
 ## Data Model
-- `ToolchainPolicyV2`
-  - `tools`: `swift`, `tuist`, `fastlane`
-  - `versionRule`: exact 또는 semver-range
-  - `requiredFor`: `[doctor, plan, apply, verify, release-init]`
-  - `installHints`: 패키지 매니저별 권장 명령 목록
-- `DoctorFinding`
-  - `tool`, `status(installed|missing|incompatible)`, `severity(required|recommended|info)`, `action`
-- `DoctorReportV2`
-  - `summary`, `blockingItems`, `recommendedItems`, `installCommands`
+1. `CommandContractSpec`
+- `command`: doctor|plan|apply|verify|release-init
+- `intent`: contract|behavior
+- `requiredFlags`, `defaultPaths`, `failureExitCode`, `sideEffectsAllowed`
 
-## Approach Options (3-way)
-1. Option A - Exact Lock 고수 (현재 방식 유지)
-- 장점: 재현성 최고, 판정 단순
-- 단점: 사용자 환경 다양성에 취약, 실제로 동작 가능한 환경도 불필요하게 실패
+2. `TestIntentMatrix`
+- `testCase`: 테스트명
+- `intentType`: contract|behavior|integration
+- `externalDependency`: none|tuist|xcodebuild|fastlane
+- `timeoutBudgetSec`
 
-2. Option B - Lock 제거, 설치 여부만 검사
-- 장점: 온보딩 마찰 최소
-- 단점: 호환성 경계가 사라져 실패가 뒤 단계(`verify/release`)로 지연
+3. `LegacyInventory`
+- `path`: 파일/문서 경로
+- `kind`: doc|code|flag|task
+- `status`: keep|remove|migrate
+- `rationale`, `evidence`
 
-3. Option C - 호환 범위 Lock + 명령별 요구사항 (권고)
-- 장점: 단순/명확/정확성 균형.  
-  `plan/apply`는 완화, `verify/release-init`는 필요한 항목만 엄격 적용 가능
-- 단점: 정책 모델/출력 포맷이 약간 복잡해짐
+4. `ReleaseGateChecklist`
+- `gateId`, `condition`, `evidenceCommand`, `pass/fail`
+
+## Approach Options (3)
+1. Option A — 테스트만 패치(최소 수정)
+- 장점: 빠름
+- 단점: 계약/행동 경계가 계속 불명확하고 재발 가능성 큼
+
+2. Option B — 현재 구현을 유지하고 계약 테스트를 행동 테스트로 전환
+- 장점: 코드 변경 최소
+- 단점: 계약 검증이 사라져 실패 원인 분리가 약해짐
+
+3. Option C — 계약 명세 고정 + 테스트 계층 분리 + 레거시 정리(권장)
+- 장점: 구현과 검증의 대응관계가 명확해지고 출시 판단이 단순해짐
+- 단점: 초기 정리 비용이 필요
 
 ## Decision
-`Option C`를 채택한다.  
-`lock`은 유지하되 "기계 고정값"이 아니라 "호환 정책"으로 바꾸고, `doctor`는 블로킹 조건을 명령 단위로 분리한다.
+- Option C 채택.
+- 이유: “실제 구현이 중요하고 정확히 테스트해야 한다”는 요구를 충족하려면 테스트 의도 분리가 선행되어야 한다.
+- `verify`는 실행형 계약을 유지한다(무인자 실행 허용). 대신 계약 테스트에서 `verify`를 제외하고, `verify`는 행동/통합 테스트에서만 검증한다.
 
-## Priority Matrix
-- Urgent + Important:
-  - `doctor` 블로킹 조건 재정의 (`requiredFor`)
-  - lock schema v2 + v1 호환 파서
-- Important + Not Urgent:
-  - 설치 가이드 메시지 표준화
-  - 자동 설치(`--install`) 안전장치
-- Urgent + Less Important:
-  - lock 미존재 시 초기화 UX (`--init-lock`)
-- Less Important:
-  - 다중 패키지 매니저 고급 지원(asdf/mise 세부 옵션)
+## Priority Matrix (Urgent/Important)
+- Urgent + Important
+  - `verify` 계약 회귀 수정
+  - CLI 계약 테스트 deterministic 보장
+- Important + Not Urgent
+  - 레거시 문서/코드 정리
+  - 중기 신기능 백로그 정리(`--smoke`, `--run-certs`)
+- Urgent + Less Important
+  - 테스트 로그 포맷 미세 개선
+- Less Important
+  - 문구/표현 리라이팅
 
 ## Critical Path
-1. lock 정책 모델(v2) 정의 및 역호환 파서 도입
-2. `doctor` 판정 엔진을 명령별 필수 도구 매트릭스로 전환
-3. 설치 권유 메시지/명령 자동 제시
-4. 선택적 자동 설치 + lock 초기화 흐름 도입
-5. Aether 실검증으로 회귀 확인
+1. `verify` 계약(실패 코드/사이드이펙트 허용 여부) 확정
+2. 계약 테스트와 행동 테스트 분리
+3. 레거시 항목 제거 목록 확정 및 반영
+4. 최소 출시 게이트 실행(핵심 테스트 세트 + 명령 증거)
 
 ## Decision Gates
-1. Gate-A (정책 모델): v1 lock 입력도 동일하게 해석되며 기존 프로젝트 깨지지 않음
-2. Gate-B (판정 정확도): `swift 6.2` + `fastlane 미설치` 환경에서 `verify` 가능/`release-init` 준비 필요를 분리 표시
-3. Gate-C (조치 가능성): 누락 도구마다 설치 명령이 OS/매니저 기준으로 자동 제시
-4. Gate-D (운영 안정성): Aether E2E에서 `plan -> apply -> verify` 성공, `doctor` 메시지 일관성 확보
+- Gate-1 Contract Freeze
+  - `CommandContractSpec`가 문서/테스트에 반영됨
+- Gate-2 Test Determinism
+  - 계약 테스트가 100% 외부툴 비의존으로 종료됨
+- Gate-3 Legacy Cleanup
+  - 제거 대상 문서/코드가 반영되고 기준 문서가 일치함
+- Gate-4 Release Readiness
+  - 필수 테스트 세트 통과 + 실패 시 원인 분류 가능
+
+## Release Gate Checklist (REL-001)
+| Gate ID | Condition | Evidence Command | Result |
+|---|---|---|---|
+| RG-1 | CLI 계약 실패는 parseable JSON + 빠른 종료 | `swift test --filter CoreTests.CLIJsonOutputIntegrationTests` | PASS |
+| RG-2 | signing env 누락/형식 오류는 preflight에서 사전 차단 | `swift test --filter 'CoreTests\\.(DoctorEngineIntegrationTests|ReleaseInitEngineIntegrationTests|CLIJsonOutputIntegrationTests)'` | PASS |
+| RG-3 | 핵심 엔진 경로(`plan/apply/verify/release-init/doctor`) 무회귀 | `swift test --filter 'CoreTests\\.(ApplyEngineIntegrationTests|PlanEngineIntegrationTests|VerifyEngineIntegrationTests|ReleaseInitEngineIntegrationTests|DoctorEngineIntegrationTests|SchemaValidationTests|ProfilePolicyE2ETests)'` | PASS |
+| RG-4 | 동일 P0 테스트 세트 3회 연속 동일 결과 | `swift test --filter 'CoreTests\\.(CLIJsonOutputIntegrationTests|DoctorEngineIntegrationTests|ReleaseInitEngineIntegrationTests|ApplyEngineIntegrationTests|PlanEngineIntegrationTests|VerifyEngineIntegrationTests|SchemaValidationTests|ProfilePolicyE2ETests)'` x3 | PASS |
+| RG-5 | 전체 회귀 1회 확인 | `swift test` | PASS |
 
 ## Execution Phases
-1. Phase 1 - Policy Model Migration (`ENV-001`, `ENV-002`)
-2. Phase 2 - Doctor UX and Guidance (`ENV-003`, `ENV-004`)
-3. Phase 3 - Assisted Setup (`ENV-005`, `ENV-006`)
-4. Phase 4 - Compatibility and Re-validation (`ENV-007`)
+### Phase 1 — 계약 확정 (P0)
+- 대상 TASK-ID: `QA-001`, `QA-002`
+- 산출물: 명령별 계약표, 테스트 의도 매핑표
+- 검증: 계약 테스트 단독 실행 시 외부 툴 프로세스 미생성
+
+### Phase 2 — 테스트 정확도 강화 (P0)
+- 대상 TASK-ID: `QA-003`, `QA-004`
+- 산출물: 계약/행동/통합 테스트 경계 확정, timeout 정책
+- 검증: flaky 없이 로컬 반복 3회 동일 결과
+
+### Phase 3 — 레거시/노이즈 제거 (P1)
+- 대상 TASK-ID: `LEG-001`, `LEG-002`, `LEG-003`, `DOC-002`
+- 산출물: 제거 목록 반영, 문서 최소화
+- 검증: 기준 문서와 코드 상태 불일치 0건
+
+### Phase 4 — 출시 게이트 (P0)
+- 대상 TASK-ID: `REL-001`, `REL-002`, `REL-003`
+- 산출물: 출시 체크리스트와 증거 로그
+- 검증: 게이트 항목 모두 pass, 그리고 `P0/P1` 오픈 태스크 0개
 
 ## Verification Strategy
-1. `ENV-001`: v1/v2 lock 파싱 단위 테스트 추가 (역호환 보장)
-2. `ENV-002`: 명령별 필수 도구 매트릭스 테스트 (`plan/apply/verify/release-init`)
-3. `ENV-003`: doctor 출력 스냅샷 테스트 (severity/action 필드 검증)
-4. `ENV-004`: 도구 누락 케이스별 설치 명령 제안 테스트
-5. `ENV-005`: `--install` 플래그 미사용 시 설치 동작 없음 검증
-6. `ENV-006`: `--init-lock`가 `.bos/config/toolchain.lock.yaml` 생성 검증
-7. `ENV-007`: Aether 재실행 검증 (`doctor`, `plan`, `apply`, `verify`) + 문서 계약 검증
+1. 계약 검증
+- `doctor/plan/apply/release-init`의 인자 계약 오류가 즉시 `exitCode=2`로 귀결되는지 확인
+- `verify`의 계약 실패/행동 실패 분기 기준을 명시하고 테스트로 고정
+
+2. 행동 검증
+- 외부 툴 호출이 필요한 테스트는 명시적 timeout과 실패 분류 코드를 검증
+
+3. 통합 검증
+- 핵심 시나리오: `doctor -> plan -> apply(init) -> verify -> release-init`에서 산출물 경로와 상태 파일 동기화 확인
+
+4. 반복 검증
+- P0 관련 테스트 세트를 연속 3회 실행해 동일 결과 확인
 
 ## Risk/Rollback
-- Risk: 호환 범위 규칙이 과도하게 느슨해져 실제 실패를 놓칠 수 있음
-  - Rollback: `--strict` 모드로 exact 매칭 강제, 기본 정책을 점진 완화 방식으로 제한
-- Risk: 자동 설치 기능이 사용자 환경에 부작용을 줄 수 있음
-  - Rollback: 기본값 비활성 유지 + `--install --yes` 이중 확인 유지
-- Risk: lock v2 전환 시 기존 lock 해석 불일치
-  - Rollback: v1 디코더 유지, 저장은 v2 선택 플래그 기반으로 점진 전환
+- Risk: 계약 변경으로 기존 사용자 스크립트가 깨질 수 있음
+  - Rollback: 플래그 계약을 이전 동작으로 임시 복원하고 deprecation 경고 추가
+- Risk: 테스트 분리 중 중복/누락 발생
+  - Rollback: 기존 테스트를 quarantine 태그로 잠시 유지 후 단계적 대체
+- Risk: 문서 축소 시 운영 지식 유실
+  - Rollback: 제거 전 핵심 정보를 `PRODUCT_GUIDE`로 병합 후 삭제
+
+## Evidence Snapshot (현재 기준)
+- 코드 상태: `Sources/BosCLI/main.swift`, `Sources/BosCore/*.swift`
+- 테스트 상태:
+  - `swift test --filter CoreTests.CLIJsonOutputIntegrationTests` 통과(8 tests, 0 failures)
+  - P0 테스트 세트 3회 반복 통과(각 55 tests, 0 failures; 2026-03-05 16:23:53 / 16:25:12 / 16:26:28 KST)
+  - `swift test` 전체 통과(55 tests, 0 failures; 2026-03-05 16:27:50 KST 시작)
+- 이번 사이클 해결:
+  - `CLIJsonOutputIntegrationTests`에서 계약(`contract`)과 실행 실패(`behavior`) 경계를 분리해 `verify` 관련 장시간 대기 이슈 해소
+  - signing preflight를 `release-init`/`doctor`에 공통 적용해 누락/형식 오류를 실행 전 단계에서 명확히 차단
+  - 레거시 `--verbose` 플래그 및 lock 경로 fallback 분기를 제거하고 운영 문서를 최소 세트로 정리

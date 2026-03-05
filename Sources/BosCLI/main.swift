@@ -87,15 +87,15 @@ enum BosCommand: String, CaseIterable {
     var usage: String {
         switch self {
         case .doctor:
-            return "bos doctor [--for core|all|plan|apply|verify|release-init] [--install] [--init-lock] [--project-root <path>] [--format human|json] [--verbose]"
+            return "bos doctor [--for core|all|plan|apply|verify|release-init] [--install] [--project-root <path>] [--format human|json]"
         case .plan:
-            return "bos plan (--prd <path> | --plan-dir <path>) [--profile <path>] --out <blueprint.yaml> [--app-identifier <id>] [--apple-team-id <team>] [--project-root <path>] [--format human|json] [--verbose]"
+            return "bos plan (--prd <path> | --plan-dir <path> [--app-identifier <id>] [--apple-team-id <team>]) [--profile <path>] [--out <blueprint.yaml>] [--project-root <path>] [--format human|json]"
         case .apply:
-            return "bos apply --blueprint <path> [--profile <path>] [--mode init|incremental] [--fix] [--dry-run] [--project-root <path>] [--format human|json] [--verbose]"
+            return "bos apply [--blueprint <path>] [--app-identifier <id>] [--apple-team-id <team>] [--profile <path>] [--mode init|incremental] [--fix] [--dry-run] [--project-root <path>] [--format human|json]"
         case .verify:
-            return "bos verify [--profile <path>] [--project-root <path>] [--format human|json] [--verbose]"
+            return "bos verify [--profile <path>] [--project-root <path>] [--format human|json]"
         case .releaseInit:
-            return "bos release-init --blueprint <path> [--profile <path>] [--project-root <path>] [--format human|json] [--verbose]"
+            return "bos release-init [--blueprint <path>] [--profile <path>] [--project-root <path>] [--format human|json]"
         }
     }
 }
@@ -118,7 +118,6 @@ func printRootHelp() {
     Global Flags:
       --project-root <path>
       --format human|json   (default: human)
-      --verbose
       -h, --help
 
     Primary Path:
@@ -259,11 +258,14 @@ func resolveProfilePathOrFail(
         return fallback
     }
 
-    fail(
-        message: "profile file not found. pass --profile <path> or place profile at .bos/config/profile.yaml",
-        command: command,
-        format: format
-    )
+    do {
+        let yaml = try encodeYAML(ProfileV1.default)
+        try writeTextFile(yaml, to: fallback)
+        fputs("note: profile not found — created default at \(fallback.path(percentEncoded: false))\n", stderr)
+    } catch {
+        fail(message: "could not create default profile: \(error)", command: command, format: format)
+    }
+    return fallback
 }
 
 func resolveToolchainLockPath(projectRoot: URL) -> URL? {
@@ -271,12 +273,6 @@ func resolveToolchainLockPath(projectRoot: URL) -> URL? {
     let preferred = projectRoot.appending(path: ".bos/config/toolchain.lock.yaml")
     if fm.fileExists(atPath: preferred.path(percentEncoded: false)) {
         return preferred
-    }
-
-    // Backward compatibility for previously generated projects.
-    let legacy = projectRoot.appending(path: "toolchain.lock.yaml")
-    if fm.fileExists(atPath: legacy.path(percentEncoded: false)) {
-        return legacy
     }
     return nil
 }
@@ -679,7 +675,7 @@ func runDoctor(args: [String], format: OutputFormat) {
     let parsed = parseOptions(
         args: args,
         valueFlags: ["--project-root", "--for", "--format"],
-        booleanFlags: ["--verbose", "--install", "--init-lock"]
+        booleanFlags: ["--install"]
     )
     assertOptionContract(parsed: parsed, command: .doctor, format: format)
 
@@ -687,13 +683,12 @@ func runDoctor(args: [String], format: OutputFormat) {
     let projectRoot = resolvePath(parsed.values["--project-root"] ?? ".", base: cwd)
     let scope = parseDoctorScope(raw: parsed.values["--for"], command: .doctor, format: format)
     let shouldInstall = parsed.flags.contains("--install")
-    let shouldInitLock = parsed.flags.contains("--init-lock")
     var initializationNote: String?
 
     let lockPath: URL
     if let existingLockPath = resolveToolchainLockPath(projectRoot: projectRoot) {
         lockPath = existingLockPath
-    } else if shouldInitLock {
+    } else {
         let env = ProcessInfo.processInfo.environment
         let tma = try? ToolchainLockV2.TMAPluginRef(
             type: env["TMA_PLUGIN_REF_TYPE"] ?? "git-sha",
@@ -718,12 +713,6 @@ func runDoctor(args: [String], format: OutputFormat) {
         } catch {
             fail(message: "failed to initialize toolchain lock: \(error)", command: .doctor, format: format)
         }
-    } else {
-        fail(
-            message: "toolchain lock not found. expected .bos/config/toolchain.lock.yaml (fallback: toolchain.lock.yaml). use --init-lock to create one.",
-            command: .doctor,
-            format: format
-        )
     }
 
     let lock: ToolchainLockV2
@@ -747,7 +736,8 @@ func runDoctor(args: [String], format: OutputFormat) {
                 projectRoot: projectRoot,
                 lock: lock,
                 detected: initialDetected,
-                checkCommands: scope.commands
+                checkCommands: scope.commands,
+                environment: ProcessInfo.processInfo.environment
             )
         )
     } catch {
@@ -765,7 +755,8 @@ func runDoctor(args: [String], format: OutputFormat) {
                         projectRoot: projectRoot,
                         lock: lock,
                         detected: detectedAfterInstall,
-                        checkCommands: scope.commands
+                        checkCommands: scope.commands,
+                        environment: ProcessInfo.processInfo.environment
                     )
                 )
             } catch {
@@ -879,17 +870,11 @@ func runPlan(args: [String], format: OutputFormat) {
             "--apple-team-id",
             "--format"
         ],
-        booleanFlags: ["--verbose"]
+        booleanFlags: []
     )
     assertOptionContract(parsed: parsed, command: .plan, format: format)
 
-    guard let outRaw = parsed.values["--out"] else {
-        fail(
-            message: "required flags: (--prd <path> | --plan-dir <path>) --out <blueprint.yaml>",
-            command: .plan,
-            format: format
-        )
-    }
+    let outRaw = parsed.values["--out"] ?? ".bos/plan/blueprint.yaml"
 
     let prdRaw = parsed.values["--prd"]
     let planDirRaw = parsed.values["--plan-dir"]
@@ -972,18 +957,12 @@ func copyIfExists(from source: URL, to destination: URL) throws {
 func runApply(args: [String], format: OutputFormat) {
     let parsed = parseOptions(
         args: args,
-        valueFlags: ["--project-root", "--blueprint", "--profile", "--mode", "--format"],
-        booleanFlags: ["--fix", "--dry-run", "--verbose"]
+        valueFlags: ["--project-root", "--blueprint", "--profile", "--mode", "--format", "--app-identifier", "--apple-team-id"],
+        booleanFlags: ["--fix", "--dry-run"]
     )
     assertOptionContract(parsed: parsed, command: .apply, format: format)
 
-    guard let blueprintRaw = parsed.values["--blueprint"] else {
-        fail(
-            message: "required flags: --blueprint <path>",
-            command: .apply,
-            format: format
-        )
-    }
+    let blueprintRaw = parsed.values["--blueprint"] ?? ".bos/plan/blueprint.yaml"
 
     let cwd = currentWorkingDirectoryURL()
     let projectRoot = resolvePath(parsed.values["--project-root"] ?? ".", base: cwd)
@@ -1001,6 +980,12 @@ func runApply(args: [String], format: OutputFormat) {
     }
     let fix = parsed.flags.contains("--fix")
     let dryRun = parsed.flags.contains("--dry-run")
+
+    let bundleIdPrefixOverride: String? = parsed.values["--app-identifier"].flatMap { id in
+        let chunks = id.split(separator: ".").map(String.init)
+        return chunks.count >= 2 ? chunks.dropLast().joined(separator: ".") : nil
+    }
+    let appleTeamIdOverride = parsed.values["--apple-team-id"]
 
     do {
         let blueprint = try decodeYAMLOrJSON(BlueprintV1.self, at: blueprintPath)
@@ -1025,7 +1010,9 @@ func runApply(args: [String], format: OutputFormat) {
                     blueprint: blueprint,
                     profile: profile,
                     mode: mode,
-                    fix: fix
+                    fix: fix,
+                    bundleIdPrefixOverride: bundleIdPrefixOverride,
+                    appleTeamIdOverride: appleTeamIdOverride
                 )
             )
 
@@ -1051,7 +1038,9 @@ func runApply(args: [String], format: OutputFormat) {
                 blueprint: blueprint,
                 profile: profile,
                 mode: mode,
-                fix: fix
+                fix: fix,
+                bundleIdPrefixOverride: bundleIdPrefixOverride,
+                appleTeamIdOverride: appleTeamIdOverride
             )
         )
 
@@ -1098,7 +1087,7 @@ func runVerify(args: [String], format: OutputFormat) {
     let parsed = parseOptions(
         args: args,
         valueFlags: ["--project-root", "--profile", "--format"],
-        booleanFlags: ["--verbose"]
+        booleanFlags: []
     )
     assertOptionContract(parsed: parsed, command: .verify, format: format)
 
@@ -1154,17 +1143,11 @@ func runReleaseInit(args: [String], format: OutputFormat) {
     let parsed = parseOptions(
         args: args,
         valueFlags: ["--project-root", "--blueprint", "--profile", "--format"],
-        booleanFlags: ["--verbose"]
+        booleanFlags: []
     )
     assertOptionContract(parsed: parsed, command: .releaseInit, format: format)
 
-    guard let blueprintRaw = parsed.values["--blueprint"] else {
-        fail(
-            message: "required flags: --blueprint <path>",
-            command: .releaseInit,
-            format: format
-        )
-    }
+    let blueprintRaw = parsed.values["--blueprint"] ?? ".bos/plan/blueprint.yaml"
 
     let cwd = currentWorkingDirectoryURL()
     let projectRoot = resolvePath(parsed.values["--project-root"] ?? ".", base: cwd)
@@ -1206,6 +1189,8 @@ func runReleaseInit(args: [String], format: OutputFormat) {
         switch error {
         case .missingRequiredEnvironment(let keys):
             summary = "missing required environment: \(keys.joined(separator: ", "))"
+        case .invalidEnvironmentFormat(let details):
+            summary = "invalid environment format: \(details.joined(separator: ", "))"
         case .laneParseFailed(let path):
             summary = "failed to parse fastlane lanes from \(path)"
         }

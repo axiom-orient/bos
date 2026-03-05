@@ -1088,3 +1088,19 @@ extension BootstrapLockV1.StepSummary: StrictSchema {
         }
     }
 }
+
+extension ProfileV1 {
+    public static let `default`: ProfileV1 = try! ProfileV1(
+        schemaVersion: 1,
+        name: "default",
+        defaults: .init(
+            deploymentTarget: "18.0",
+            appTargets: .init(controlsExtension: false, uiTests: true)
+        ),
+        featurePattern: .init(sourcesInterface: true, designFolder: false),
+        rules: try! .init(
+            testingStyle: "swift-testing",
+            forbidPatterns: ["@unchecked Sendable", "Date()", "UUID()"]
+        )
+    )
+}

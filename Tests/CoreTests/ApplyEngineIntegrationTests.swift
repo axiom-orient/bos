@@ -63,6 +63,12 @@ final class ApplyEngineIntegrationTests: XCTestCase {
         let tuistText = try String(contentsOf: root.appending(path: "Tuist.swift"), encoding: .utf8)
         XCTAssertTrue(tuistText.contains(#".local(path: .relativeToRoot("Tuist/Plugins/tma"))"#))
         XCTAssertFalse(tuistText.contains("/Users/axient/repository/tma"))
+        let appProjectText = try String(contentsOf: root.appending(path: "Projects/App/Project.swift"), encoding: .utf8)
+        XCTAssertTrue(appProjectText.contains(#"let teamID = "A1B2C3D4E5""#))
+        XCTAssertTrue(appProjectText.contains(#""DEVELOPMENT_TEAM": .string(teamID)"#))
+        let domainProjectText = try String(contentsOf: root.appending(path: "Projects/Domains/User/Project.swift"), encoding: .utf8)
+        XCTAssertTrue(domainProjectText.contains(#"let teamID = "A1B2C3D4E5""#))
+        XCTAssertTrue(domainProjectText.contains(#""DEVELOPMENT_TEAM": .string(teamID)"#))
 
         let stateFile = root.appending(path: ".bos/state/bos.state.yaml")
         let lockText = try String(contentsOf: stateFile, encoding: .utf8)

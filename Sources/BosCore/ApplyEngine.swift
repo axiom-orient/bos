@@ -12,19 +12,25 @@ public struct ApplyRequest: Sendable {
     public let profile: ProfileV1
     public let mode: ApplyMode
     public let fix: Bool
+    public let bundleIdPrefixOverride: String?
+    public let appleTeamIdOverride: String?
 
     public init(
         projectRoot: URL,
         blueprint: BlueprintV1,
         profile: ProfileV1,
         mode: ApplyMode = .initMode,
-        fix: Bool = false
+        fix: Bool = false,
+        bundleIdPrefixOverride: String? = nil,
+        appleTeamIdOverride: String? = nil
     ) {
         self.projectRoot = projectRoot
         self.blueprint = blueprint
         self.profile = profile
         self.mode = mode
         self.fix = fix
+        self.bundleIdPrefixOverride = bundleIdPrefixOverride
+        self.appleTeamIdOverride = appleTeamIdOverride
     }
 }
 
@@ -139,7 +145,9 @@ extension ApplyEngine {
         let fm = FileManager.default
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
 
-        try scaffoldModules(root: root, blueprint: request.blueprint)
+        let effectiveBundleIdPrefix = request.bundleIdPrefixOverride ?? request.blueprint.project.bundleIdPrefix
+        let effectiveTeamId = normalizedTeamID(request.appleTeamIdOverride ?? request.blueprint.release.fastlane.appleTeamId)
+        try scaffoldModules(root: root, blueprint: request.blueprint, bundleIdPrefix: effectiveBundleIdPrefix, teamID: effectiveTeamId)
 
         let target = root.appending(path: Constant.appCompositionRelativePath)
         let expected = appCompositionTemplate(from: request.blueprint)
@@ -215,7 +223,7 @@ extension ApplyEngine {
         )
     }
 
-    private func scaffoldModules(root: URL, blueprint: BlueprintV1) throws {
+    private func scaffoldModules(root: URL, blueprint: BlueprintV1, bundleIdPrefix: String, teamID: String?) throws {
         try installTMAPluginIfMissing(root: root)
         try installProjectBootstrapFilesIfMissing(root: root)
         try writeRootTuistFilesIfMissing(root: root, workspaceName: blueprint.project.name)
@@ -225,7 +233,9 @@ extension ApplyEngine {
             root: root,
             blueprint: blueprint,
             appName: appName,
-            rootFeatureName: sanitizeModuleName(blueprint.wiring.rootFeature)
+            rootFeatureName: sanitizeModuleName(blueprint.wiring.rootFeature),
+            bundleIdPrefix: bundleIdPrefix,
+            teamID: teamID
         )
 
         try scaffoldLayerModulesIfNeeded(
@@ -233,28 +243,36 @@ extension ApplyEngine {
             blueprint: blueprint,
             template: "domain",
             layerFolder: "Domains",
-            moduleNames: blueprint.modules.domains.map(sanitizeModuleName)
+            moduleNames: blueprint.modules.domains.map(sanitizeModuleName),
+            bundleIdPrefix: bundleIdPrefix,
+            teamID: teamID
         )
         try scaffoldLayerModulesIfNeeded(
             root: root,
             blueprint: blueprint,
             template: "feature",
             layerFolder: "Features",
-            moduleNames: blueprint.modules.features.map(sanitizeModuleName)
+            moduleNames: blueprint.modules.features.map(sanitizeModuleName),
+            bundleIdPrefix: bundleIdPrefix,
+            teamID: teamID
         )
         try scaffoldLayerModulesIfNeeded(
             root: root,
             blueprint: blueprint,
             template: "service",
             layerFolder: "Services",
-            moduleNames: blueprint.modules.services.map { sanitizeModuleName(normalizeServiceName($0)) }
+            moduleNames: blueprint.modules.services.map { sanitizeModuleName(normalizeServiceName($0)) },
+            bundleIdPrefix: bundleIdPrefix,
+            teamID: teamID
         )
         try scaffoldLayerModulesIfNeeded(
             root: root,
             blueprint: blueprint,
             template: "shared",
             layerFolder: "Shared",
-            moduleNames: blueprint.modules.shared.map(sanitizeModuleName)
+            moduleNames: blueprint.modules.shared.map(sanitizeModuleName),
+            bundleIdPrefix: bundleIdPrefix,
+            teamID: teamID
         )
     }
 
@@ -411,7 +429,9 @@ extension ApplyEngine {
         root: URL,
         blueprint: BlueprintV1,
         appName: String,
-        rootFeatureName: String
+        rootFeatureName: String,
+        bundleIdPrefix: String,
+        teamID: String?
     ) throws {
         let appProjectPath = root.appending(path: "Projects/App/Project.swift")
         guard !FileManager.default.fileExists(atPath: appProjectPath.path(percentEncoded: false)) else {
@@ -421,7 +441,9 @@ extension ApplyEngine {
         let command = baseScaffoldCommand(
             template: "app",
             name: appName,
-            blueprint: blueprint
+            blueprint: blueprint,
+            bundleIdPrefix: bundleIdPrefix,
+            teamID: teamID
         ) + ["--root-feature-name", rootFeatureName]
         try runScaffold(command: command, in: root)
     }
@@ -431,7 +453,9 @@ extension ApplyEngine {
         blueprint: BlueprintV1,
         template: String,
         layerFolder: String,
-        moduleNames: [String]
+        moduleNames: [String],
+        bundleIdPrefix: String,
+        teamID: String?
     ) throws {
         let unique = RuntimeSupport.uniqueOrdered(moduleNames)
         for moduleName in unique {
@@ -442,20 +466,31 @@ extension ApplyEngine {
             let command = baseScaffoldCommand(
                 template: template,
                 name: moduleName,
-                blueprint: blueprint
+                blueprint: blueprint,
+                bundleIdPrefix: bundleIdPrefix,
+                teamID: teamID
             )
             try runScaffold(command: command, in: root)
         }
     }
 
-    private func baseScaffoldCommand(template: String, name: String, blueprint: BlueprintV1) -> [String] {
-        [
+    private func baseScaffoldCommand(template: String, name: String, blueprint: BlueprintV1, bundleIdPrefix: String, teamID: String?) -> [String] {
+        var command = [
             "tuist", "scaffold", template,
             "--name", name,
             "--organization-name", Constant.defaultOrganization,
-            "--bundle-id-prefix", blueprint.project.bundleIdPrefix,
+            "--bundle-id-prefix", bundleIdPrefix,
             "--deployment-target", blueprint.project.deploymentTarget
         ]
+        if let teamID {
+            command.append(contentsOf: ["--team-id", teamID])
+        }
+        return command
+    }
+
+    private func normalizedTeamID(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func runScaffold(command: [String], in root: URL) throws {

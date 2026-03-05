@@ -22,7 +22,7 @@
 | Test File | 의도 요약 | 필요한 이유 | 관련 구현 |
 |---|---|---|---|
 | [ApplyEngineIntegrationTests.swift](./CoreTests/ApplyEngineIntegrationTests.swift) | `apply init/incremental`의 생성/복구/보호 규칙 검증 | 프로젝트 생성기의 안정성 핵심. 재실행 시 파손 방지 | [ApplyEngine.swift](../Sources/BosCore/ApplyEngine.swift) |
-| [CLIJsonOutputIntegrationTests.swift](./CoreTests/CLIJsonOutputIntegrationTests.swift) | CLI 전체 명령의 JSON 계약과 입력 정책 검증 | 자동화 파이프라인에서 파싱 가능한 결과가 필수 | [main.swift](../Sources/BosCLI/main.swift) |
+| [CLIJsonOutputIntegrationTests.swift](./CoreTests/CLIJsonOutputIntegrationTests.swift) | CLI 경계 테스트를 `contract`(옵션 파싱 실패)와 `behavior`(실행 실패 JSON)로 분리하고 `release-init` env 형식 실패 JSON까지 검증 | 계약 실패와 실행 실패를 혼동하지 않고 원인 분리를 보장 | [main.swift](../Sources/BosCLI/main.swift) |
 | [DoctorEngineIntegrationTests.swift](./CoreTests/DoctorEngineIntegrationTests.swift) | 툴체인 lock 비교 결과(success/fail) 검증 | 잘못된 로컬 환경에서 조기 실패 보장 | [DoctorEngine.swift](../Sources/BosCore/DoctorEngine.swift) |
 | [PlanEngineIntegrationTests.swift](./CoreTests/PlanEngineIntegrationTests.swift) | 기획 문서 파싱과 blueprint 생성 규칙 검증 | 입력 품질이 전체 생성 결과를 결정 | [PlanEngine.swift](../Sources/BosCore/PlanEngine.swift) |
 | [ProfilePolicyE2ETests.swift](./CoreTests/ProfilePolicyE2ETests.swift) | 기본 profile fixture 기반 apply+verify 흐름 회귀 검증 | 정책 파일 변경 시 즉시 회귀 탐지 | [VerifyEngine.swift](../Sources/BosCore/VerifyEngine.swift), [ApplyEngine.swift](../Sources/BosCore/ApplyEngine.swift) |
@@ -39,4 +39,3 @@
 - 이번 보강:
   - `VerifyEngineIntegrationTests`: 실패 시 `verifySummary`가 `failed`로 갱신되는지 추가 검증.
   - `ReleaseInitEngineIntegrationTests`: 필수 환경값 누락 실패 시 `releaseSummary`가 `failed`로 갱신되는지 추가 검증.
-

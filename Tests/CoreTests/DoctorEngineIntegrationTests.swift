@@ -93,6 +93,51 @@ final class DoctorEngineIntegrationTests: XCTestCase {
         XCTAssertEqual(tuist.severity, .required)
         XCTAssertEqual(tuist.status, .missing)
     }
+
+    func testDoctorReleaseInitScopeFailsOnInvalidSigningEnvironment() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let lock = try makePolicy(
+            swiftRule: .init(kind: "semver-range", value: ">=6.0 <7.0"),
+            tuistRule: .init(kind: "semver-range", value: ">=4.0 <5.0"),
+            fastlaneRule: .init(kind: "semver-range", value: ">=2.0 <3.0"),
+            swiftRequiredFor: ToolchainLockV2.allCommands,
+            tuistRequiredFor: [ToolchainLockV2.commandApply, ToolchainLockV2.commandVerify],
+            fastlaneRequiredFor: [ToolchainLockV2.commandReleaseInit]
+        )
+
+        let detected = try DetectedToolchainV2(
+            swift: "6.2",
+            tuist: "4.153.1",
+            fastlane: "2.228.0",
+            tmaPluginRef: .init(type: "git-sha", value: "abc")
+        )
+
+        let result = try engine.check(
+            request: DoctorRequest(
+                projectRoot: root,
+                lock: lock,
+                detected: detected,
+                checkCommands: [ToolchainLockV2.commandReleaseInit],
+                environment: [
+                    "ASC_ISSUER_ID": "issuer-id",
+                    "ASC_KEY_ID": "bad",
+                    "ASC_KEY_P8_BASE64": "not-base64",
+                    "MATCH_GIT_URL": "ftp://example.com/repo",
+                    "MATCH_PASSWORD": "secret"
+                ]
+            )
+        )
+
+        XCTAssertEqual(result.status, "failed")
+        XCTAssertEqual(result.exitCode, 6)
+
+        let signing = try XCTUnwrap(result.findings.first(where: { $0.tool == "signing-env" }))
+        XCTAssertEqual(signing.severity, .required)
+        XCTAssertEqual(signing.status, .incompatible)
+        XCTAssertTrue(signing.actualVersion.contains("invalid="))
+    }
 }
 
 private extension DoctorEngineIntegrationTests {

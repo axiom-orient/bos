@@ -163,7 +163,7 @@ extension PlanEngine {
     private static let frRegex = try! NSRegularExpression(pattern: #"\bFR-(\d{1,3})\b"#, options: [.caseInsensitive])
     private static let scrRegex = try! NSRegularExpression(pattern: #"\bSCR_[A-Z0-9_]+\b"#, options: [.caseInsensitive])
     private static let entityLineRegex = try! NSRegularExpression(
-        pattern: #"(?mi)^\s*(?:[-*]\s*)?(?:Entity|엔티티)\s*:\s*([A-Za-z0-9_\- ]+)\s*$"#
+        pattern: #"(?mi)^\s*(?:#{1,6}\s+)?(?:[-*•]\s*)?(?:\*{1,2})?(?:Entity|Domain|엔티티)(?:\*{1,2})?\s*[-:]\s*([A-Za-z0-9_][A-Za-z0-9_\- ]+)\s*$"#
     )
     private static let entityHeadingRegex = try! NSRegularExpression(
         pattern: #"(?mi)^#{2,6}\s*\d+(?:\.\d+)+\s+([A-Za-z][A-Za-z0-9_]+)\s*$"#

@@ -3,6 +3,13 @@
 `bos`는 iOS 프로젝트 초기 설정 자동화 CLI입니다.
 핵심 목표는 **개발 기능 구현이 아니라 설정/생성/검증 자동화**입니다.
 
+## 0.1.0에서 바로 할 수 있는 일
+- `PLAN/` 또는 PRD에서 blueprint를 자동 생성할 수 있다.
+- Tuist/TMA 기반 앱 골격을 반복 실행해도 안전하게 생성/갱신할 수 있다.
+- `verify`로 `tuist/xcodebuild` 검증 게이트를 한 번에 실행할 수 있다.
+- `release-init`으로 fastlane 기본 파일과 lane을 즉시 준비할 수 있다.
+- `doctor`로 도구 버전/누락/release signing 환경을 사전에 점검할 수 있다.
+
 ## Core Scope
 - `plan`: 기획 문서(PRD) -> `.bos/plan/blueprint.yaml` 생성
 - `apply`: Tuist/TMA 기반 프로젝트 골격 생성
@@ -13,11 +20,17 @@
 ## Single Best Path
 ```bash
 bos doctor
-# profile 위치 권장: ./.bos/config/profile.yaml
-bos plan --plan-dir ./PLAN --out ./.bos/plan/blueprint.yaml --app-identifier com.example.app --apple-team-id ABCD123456
-bos apply --blueprint ./.bos/plan/blueprint.yaml --mode init
+bos plan --plan-dir ./PLAN --app-identifier com.example.app --apple-team-id ABCD123456
+bos apply --mode init
 bos verify
-bos release-init --blueprint ./.bos/plan/blueprint.yaml
+# release-init 전 필수 env 설정
+export ASC_ISSUER_ID=123E4567-E89B-12D3-A456-426614174000
+export ASC_KEY_ID=AB12CD34EF
+export ASC_KEY_P8_BASE64=<BASE64_P8_CONTENT>
+export MATCH_GIT_URL=git@github.com:org/certs.git
+export MATCH_PASSWORD=<SECRET>
+bos doctor --for release-init
+bos release-init
 ```
 
 ## Doctor Policy
@@ -29,7 +42,10 @@ bos release-init --blueprint ./.bos/plan/blueprint.yaml
   - `--for core` (기본)
   - `--for all`
   - `--for plan|apply|verify|release-init`
-- lock 파일이 없으면 `--init-lock`로 `.bos/config/toolchain.lock.yaml`를 생성할 수 있다.
+- lock 파일이 없으면 자동으로 `.bos/config/toolchain.lock.yaml`를 생성한다.
+- `--for release-init` 또는 `--for all`에서는 signing env preflight를 수행한다.
+  - 필수 키: `ASC_ISSUER_ID`, `ASC_KEY_ID`, `ASC_KEY_P8_BASE64`, `MATCH_GIT_URL`, `MATCH_PASSWORD`
+  - 형식: `ASC_ISSUER_ID`(UUID), `ASC_KEY_ID`(대문자/숫자 10자리), `ASC_KEY_P8_BASE64`(base64), `MATCH_GIT_URL`(git/https/ssh URL)
 - 누락 도구 설치:
   - 안내만: `bos doctor --project-root . --for all`
   - 자동 설치 시도: `bos doctor --project-root . --for all --install`
@@ -41,7 +57,7 @@ bos release-init --blueprint ./.bos/plan/blueprint.yaml
 
 ## Planning Input (Preferred)
 - 권장 입력은 `PLAN/` 폴더다.
-- profile 기본 위치는 `.bos/config/profile.yaml` 이다.
+- profile 기본 위치는 `.bos/config/profile.yaml` 이고, 없으면 기본 profile이 자동 생성된다.
 - `plan`은 `FR-###` -> `REQ-###`, 화면 키워드 -> `SCR_...`, 도메인 heading -> `Entity`를 자동 추출한다.
 - `App Identifier`, `Apple Team ID`는 문서 마커 또는 CLI flag 중 하나로 제공한다.
 
