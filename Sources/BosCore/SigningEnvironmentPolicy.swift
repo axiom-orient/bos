@@ -47,7 +47,7 @@ public enum SigningEnvironmentPolicy {
         var invalid: [SigningEnvironmentIssue] = []
 
         if let raw = normalizedValue(for: "ASC_ISSUER_ID", in: environment),
-           !matches(raw, pattern: #"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"#) {
+           !matches(raw, regex: uuidRegex) {
             invalid.append(
                 SigningEnvironmentIssue(
                     key: "ASC_ISSUER_ID",
@@ -58,7 +58,7 @@ public enum SigningEnvironmentPolicy {
         }
 
         if let raw = normalizedValue(for: "ASC_KEY_ID", in: environment),
-           !matches(raw, pattern: #"^[A-Z0-9]{10}$"#) {
+           !matches(raw, regex: keyIdRegex) {
             invalid.append(
                 SigningEnvironmentIssue(
                     key: "ASC_KEY_ID",
@@ -98,14 +98,18 @@ public enum SigningEnvironmentPolicy {
 }
 
 private extension SigningEnvironmentPolicy {
+    static let uuidRegex = try! NSRegularExpression(
+        pattern: #"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"#
+    )
+    static let keyIdRegex = try! NSRegularExpression(pattern: #"^[A-Z0-9]{10}$"#)
+
     static func normalizedValue(for key: String, in environment: [String: String]) -> String? {
         guard let value = environment[key] else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    static func matches(_ value: String, pattern: String) -> Bool {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+    static func matches(_ value: String, regex: NSRegularExpression) -> Bool {
         let range = NSRange(value.startIndex..<value.endIndex, in: value)
         return regex.firstMatch(in: value, range: range) != nil
     }

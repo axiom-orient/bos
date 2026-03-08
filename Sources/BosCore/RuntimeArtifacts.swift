@@ -12,9 +12,7 @@ enum RuntimeArtifacts {
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
 
         let directory = root.appending(path: command)
-        if !fm.fileExists(atPath: directory.path(percentEncoded: false)) {
-            try fm.createDirectory(at: directory, withIntermediateDirectories: true)
-        }
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
         try pruneOldArtifacts(in: directory)
         return directory
     }

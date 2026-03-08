@@ -1,9 +1,11 @@
 import Foundation
-import XCTest
+import os
+import Testing
 @testable import BosCore
 
-final class VerifyEngineIntegrationTests: XCTestCase {
-    func testVerifyRunsStandardSequenceForDaycraftAndWritesArtifacts() throws {
+@Suite
+struct VerifyEngineIntegrationTests {
+    @Test func verifyRunsStandardSequenceForDaycraftAndWritesArtifacts() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -24,8 +26,8 @@ final class VerifyEngineIntegrationTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(
-            runner.commands,
+        #expect(
+            runner.commands ==
             [
                 ["tuist", "install"],
                 ["tuist", "generate", "--no-open"],
@@ -35,28 +37,28 @@ final class VerifyEngineIntegrationTests: XCTestCase {
         )
 
         let rootPath = root.path(percentEncoded: false)
-        XCTAssertEqual(runner.workingDirectories, [rootPath, rootPath, rootPath, rootPath])
+        #expect(runner.workingDirectories == [rootPath, rootPath, rootPath, rootPath])
 
-        let jsonPath = try XCTUnwrap(result.artifacts.first(where: { $0.hasSuffix(".json") }))
-        let logPath = try XCTUnwrap(result.artifacts.first(where: { $0.hasSuffix(".log") }))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: jsonPath))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: logPath))
+        let jsonPath = try #require(result.artifacts.first(where: { $0.hasSuffix(".json") }))
+        let logPath = try #require(result.artifacts.first(where: { $0.hasSuffix(".log") }))
+        #expect(FileManager.default.fileExists(atPath: jsonPath))
+        #expect(FileManager.default.fileExists(atPath: logPath))
 
         let log = try String(contentsOfFile: logPath, encoding: .utf8)
-        XCTAssertTrue(log.contains("tuist install"))
-        XCTAssertTrue(log.contains("xcodebuild build -scheme DaycraftApp"))
-        XCTAssertTrue(log.contains("xcodebuild test -scheme DaycraftApp"))
+        #expect(log.contains("tuist install"))
+        #expect(log.contains("xcodebuild build -scheme DaycraftApp"))
+        #expect(log.contains("xcodebuild test -scheme DaycraftApp"))
 
         let payloadData = try Data(contentsOf: URL(fileURLWithPath: jsonPath))
         let payload = try JSONDecoder().decode(VerifyArtifactPayload.self, from: payloadData)
-        XCTAssertEqual(payload.command, "verify")
-        XCTAssertEqual(payload.status, "success")
-        XCTAssertEqual(payload.exitCode, 0)
-        XCTAssertNil(payload.failureCode)
-        XCTAssertNil(payload.failedStep)
+        #expect(payload.command == "verify")
+        #expect(payload.status == "success")
+        #expect(payload.exitCode == 0)
+        #expect(payload.failureCode == nil)
+        #expect(payload.failedStep == nil)
     }
 
-    func testVerifyUsesSanitizedProfileNameWhenProjectSchemeMissing() throws {
+    @Test func verifyUsesSanitizedProfileNameWhenProjectSchemeMissing() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -72,14 +74,11 @@ final class VerifyEngineIntegrationTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(runner.commands[2], ["xcodebuild", "build", "-scheme", "IosNativeApp"])
-        XCTAssertEqual(
-            runner.commands[3],
-            ["xcodebuild", "test", "-scheme", "IosNativeApp"]
-        )
+        #expect(runner.commands[2] == ["xcodebuild", "build", "-scheme", "IosNativeApp"])
+        #expect(runner.commands[3] == ["xcodebuild", "test", "-scheme", "IosNativeApp"])
     }
 
-    func testVerifyAppendsResolvedSimulatorDestinationToTestCommand() throws {
+    @Test func verifyAppendsResolvedSimulatorDestinationToTestCommand() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -95,17 +94,17 @@ final class VerifyEngineIntegrationTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(
-            runner.commands[3],
+        #expect(
+            runner.commands[3] ==
             ["xcodebuild", "test", "-scheme", "DaycraftApp", "-destination", "id=SIM-DEVICE-1234"]
         )
 
-        let logPath = try XCTUnwrap(result.artifacts.first(where: { $0.hasSuffix(".log") }))
+        let logPath = try #require(result.artifacts.first(where: { $0.hasSuffix(".log") }))
         let log = try String(contentsOfFile: logPath, encoding: .utf8)
-        XCTAssertTrue(log.contains("testDestination=id=SIM-DEVICE-1234"))
+        #expect(log.contains("testDestination=id=SIM-DEVICE-1234"))
     }
 
-    func testVerifyCleansGeneratedBuildArtifactsFromProjectRoot() throws {
+    @Test func verifyCleansGeneratedBuildArtifactsFromProjectRoot() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -140,17 +139,17 @@ final class VerifyEngineIntegrationTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(fm.fileExists(atPath: workspace.path(percentEncoded: false)))
-        XCTAssertFalse(fm.fileExists(atPath: xcodeproj.path(percentEncoded: false)))
-        XCTAssertFalse(fm.fileExists(atPath: derived.path(percentEncoded: false)))
-        XCTAssertFalse(fm.fileExists(atPath: temporary.path(percentEncoded: false)))
-        XCTAssertFalse(fm.fileExists(atPath: tuistBuild.path(percentEncoded: false)))
-        XCTAssertFalse(fm.fileExists(atPath: tuistResolved.path(percentEncoded: false)))
-        XCTAssertFalse(fm.fileExists(atPath: swiftGenerated.path(percentEncoded: false)))
-        XCTAssertFalse(fm.fileExists(atPath: lockFile.path(percentEncoded: false)))
+        #expect(!fm.fileExists(atPath: workspace.path(percentEncoded: false)))
+        #expect(!fm.fileExists(atPath: xcodeproj.path(percentEncoded: false)))
+        #expect(!fm.fileExists(atPath: derived.path(percentEncoded: false)))
+        #expect(!fm.fileExists(atPath: temporary.path(percentEncoded: false)))
+        #expect(!fm.fileExists(atPath: tuistBuild.path(percentEncoded: false)))
+        #expect(!fm.fileExists(atPath: tuistResolved.path(percentEncoded: false)))
+        #expect(!fm.fileExists(atPath: swiftGenerated.path(percentEncoded: false)))
+        #expect(!fm.fileExists(atPath: lockFile.path(percentEncoded: false)))
     }
 
-    func testVerifyFailureAtTuistInstallIsClassifiedAsToolchain() throws {
+    @Test func verifyFailureAtTuistInstallIsClassifiedAsToolchain() throws {
         try assertFailureClassification(
             scriptedResults: [VerifyCommandResult(exitCode: 127, stderr: "command not found")],
             expectedClassification: .toolchain,
@@ -158,7 +157,7 @@ final class VerifyEngineIntegrationTests: XCTestCase {
         )
     }
 
-    func testVerifyFailureAtTuistGenerateIsClassifiedAsGeneration() throws {
+    @Test func verifyFailureAtTuistGenerateIsClassifiedAsGeneration() throws {
         try assertFailureClassification(
             scriptedResults: [
                 VerifyCommandResult(exitCode: 0),
@@ -169,7 +168,7 @@ final class VerifyEngineIntegrationTests: XCTestCase {
         )
     }
 
-    func testVerifyFailureAtBuildIsClassifiedAsBuild() throws {
+    @Test func verifyFailureAtBuildIsClassifiedAsBuild() throws {
         try assertFailureClassification(
             scriptedResults: [
                 VerifyCommandResult(exitCode: 0),
@@ -181,7 +180,7 @@ final class VerifyEngineIntegrationTests: XCTestCase {
         )
     }
 
-    func testVerifyFailureAtTestIsClassifiedAsTest() throws {
+    @Test func verifyFailureAtTestIsClassifiedAsTest() throws {
         try assertFailureClassification(
             scriptedResults: [
                 VerifyCommandResult(exitCode: 0),
@@ -194,7 +193,7 @@ final class VerifyEngineIntegrationTests: XCTestCase {
         )
     }
 
-    func testVerifyPrefersAppProjectSchemeOverProfileName() throws {
+    @Test func verifyPrefersAppProjectSchemeOverProfileName() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
         let appProject = root.appending(path: "Projects/App/Project.swift")
@@ -219,14 +218,11 @@ final class VerifyEngineIntegrationTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(runner.commands[2], ["xcodebuild", "build", "-scheme", "CustomApp"])
-        XCTAssertEqual(
-            runner.commands[3],
-            ["xcodebuild", "test", "-scheme", "CustomApp"]
-        )
+        #expect(runner.commands[2] == ["xcodebuild", "build", "-scheme", "CustomApp"])
+        #expect(runner.commands[3] == ["xcodebuild", "test", "-scheme", "CustomApp"])
     }
 
-    func testVerifyUpdatesBootstrapStateSummaryOnSuccess() throws {
+    @Test func verifyUpdatesBootstrapStateSummaryOnSuccess() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
         try writeBootstrapStateFixture(root: root)
@@ -245,12 +241,12 @@ final class VerifyEngineIntegrationTests: XCTestCase {
 
         let statePath = root.appending(path: ".bos/state/bos.state.yaml")
         let state = try String(contentsOf: statePath, encoding: .utf8)
-        XCTAssertTrue(state.contains("verifySummary:"))
-        XCTAssertTrue(state.contains("status: \"success\""))
-        XCTAssertTrue(state.contains("Verify pipeline passed"))
+        #expect(state.contains("verifySummary:"))
+        #expect(state.contains("status: \"success\""))
+        #expect(state.contains("Verify pipeline passed"))
     }
 
-    func testVerifyUpdatesBootstrapStateSummaryOnFailure() throws {
+    @Test func verifyUpdatesBootstrapStateSummaryOnFailure() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
         try writeBootstrapStateFixture(root: root)
@@ -265,26 +261,26 @@ final class VerifyEngineIntegrationTests: XCTestCase {
         )
         let engine = VerifyEngine(runner: runner, simulatorDestinationResolver: { nil })
 
-        XCTAssertThrowsError(
-            try engine.verify(
+        do {
+            _ = try engine.verify(
                 request: VerifyRequest(
                     projectRoot: root,
                     profile: try makeProfile(name: "daycraft")
                 )
             )
-        ) { error in
-            guard case VerifyEngineError.commandFailed(let classification, let step, _, _) = error else {
-                return XCTFail("unexpected error: \(error)")
-            }
-            XCTAssertEqual(classification, .test)
-            XCTAssertEqual(step, .xcodebuildTest)
+            Issue.record("expected VerifyEngineError.commandFailed to be thrown")
+        } catch VerifyEngineError.commandFailed(let classification, let step, _, _) {
+            #expect(classification == .test)
+            #expect(step == .xcodebuildTest)
+        } catch {
+            Issue.record("unexpected error: \(error)")
         }
 
         let statePath = root.appending(path: ".bos/state/bos.state.yaml")
         let state = try String(contentsOf: statePath, encoding: .utf8)
-        XCTAssertTrue(state.contains("verifySummary:"))
-        XCTAssertTrue(state.contains("status: \"failed\""))
-        XCTAssertTrue(state.contains("Verify failed at xcodebuild-test (E-TEST)"))
+        #expect(state.contains("verifySummary:"))
+        #expect(state.contains("status: \"failed\""))
+        #expect(state.contains("Verify failed at xcodebuild-test (E-TEST)"))
     }
 }
 
@@ -300,21 +296,30 @@ private extension VerifyEngineIntegrationTests {
     }
 
     final class RecordingVerifyRunner: VerifyCommandRunning {
-        private var scriptedResults: [VerifyCommandResult]
-        private(set) var commands: [[String]] = []
-        private(set) var workingDirectories: [String] = []
+        private struct State {
+            var scriptedResults: [VerifyCommandResult]
+            var commands: [[String]] = []
+            var workingDirectories: [String] = []
+        }
+
+        private let state: OSAllocatedUnfairLock<State>
+
+        var commands: [[String]] { state.withLock { $0.commands } }
+        var workingDirectories: [String] { state.withLock { $0.workingDirectories } }
 
         init(scriptedResults: [VerifyCommandResult]) {
-            self.scriptedResults = scriptedResults
+            state = OSAllocatedUnfairLock(initialState: State(scriptedResults: scriptedResults))
         }
 
         func run(command: [String], in workingDirectory: URL) throws -> VerifyCommandResult {
-            commands.append(command)
-            workingDirectories.append(workingDirectory.path(percentEncoded: false))
-            if scriptedResults.isEmpty {
-                return VerifyCommandResult(exitCode: 0)
+            state.withLock { s in
+                s.commands.append(command)
+                s.workingDirectories.append(workingDirectory.path(percentEncoded: false))
+                if s.scriptedResults.isEmpty {
+                    return VerifyCommandResult(exitCode: 0)
+                }
+                return s.scriptedResults.removeFirst()
             }
-            return scriptedResults.removeFirst()
         }
     }
 
@@ -329,32 +334,28 @@ private extension VerifyEngineIntegrationTests {
         let runner = RecordingVerifyRunner(scriptedResults: scriptedResults)
         let engine = VerifyEngine(runner: runner, simulatorDestinationResolver: { nil })
 
-        XCTAssertThrowsError(
-            try engine.verify(
+        do {
+            _ = try engine.verify(
                 request: VerifyRequest(
                     projectRoot: root,
                     profile: try makeProfile(name: "daycraft")
                 )
             )
-        ) { error in
-            guard case VerifyEngineError.commandFailed(let classification, let step, let exitCode, let artifacts) = error else {
-                return XCTFail("unexpected error: \(error)")
-            }
-            XCTAssertEqual(classification, expectedClassification)
-            XCTAssertEqual(step, expectedStep)
-            XCTAssertNotEqual(exitCode, 0)
-            do {
-                let jsonPath = try XCTUnwrap(artifacts.first(where: { $0.hasSuffix(".json") }))
-                let payloadData = try Data(contentsOf: URL(fileURLWithPath: jsonPath))
-                let payload = try JSONDecoder().decode(VerifyArtifactPayload.self, from: payloadData)
-                XCTAssertEqual(payload.status, "failed")
-                XCTAssertEqual(payload.exitCode, 4)
-                XCTAssertEqual(payload.failureCode, expectedClassification.rawValue)
-                XCTAssertEqual(payload.failedStep, expectedStep.rawValue)
-                XCTAssertEqual(payload.artifacts.count, 2)
-            } catch {
-                XCTFail("failed to decode verify artifact: \(error)")
-            }
+            Issue.record("expected VerifyEngineError.commandFailed to be thrown")
+        } catch VerifyEngineError.commandFailed(let classification, let step, let exitCode, let artifacts) {
+            #expect(classification == expectedClassification)
+            #expect(step == expectedStep)
+            #expect(exitCode != 0)
+            let jsonPath = try #require(artifacts.first(where: { $0.hasSuffix(".json") }))
+            let payloadData = try Data(contentsOf: URL(fileURLWithPath: jsonPath))
+            let payload = try JSONDecoder().decode(VerifyArtifactPayload.self, from: payloadData)
+            #expect(payload.status == "failed")
+            #expect(payload.exitCode == 4)
+            #expect(payload.failureCode == expectedClassification.rawValue)
+            #expect(payload.failedStep == expectedStep.rawValue)
+            #expect(payload.artifacts.count == 2)
+        } catch {
+            Issue.record("unexpected error: \(error)")
         }
     }
 

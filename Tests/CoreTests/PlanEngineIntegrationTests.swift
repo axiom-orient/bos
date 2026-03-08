@@ -1,10 +1,11 @@
-import XCTest
+import Testing
 @testable import BosCore
 
-final class PlanEngineIntegrationTests: XCTestCase {
+@Suite
+struct PlanEngineIntegrationTests {
     private let engine = PlanEngine()
 
-    func testGenerateBlueprintExtractsReqScrEntities() throws {
+    @Test func generateBlueprintExtractsReqScrEntities() throws {
         let prd = """
         Project: Daycraft
         App Identifier: com.axiomorient.daycraft
@@ -26,24 +27,24 @@ final class PlanEngineIntegrationTests: XCTestCase {
 
         let blueprint = try engine.generateBlueprint(prd: prd, profile: makeProfile())
 
-        XCTAssertEqual(blueprint.schemaVersion, 1)
-        XCTAssertEqual(blueprint.project.name, "Daycraft")
-        XCTAssertEqual(blueprint.project.bundleIdPrefix, "com.axiomorient")
-        XCTAssertEqual(blueprint.project.deploymentTarget, "18.0")
+        #expect(blueprint.schemaVersion == 1)
+        #expect(blueprint.project.name == "Daycraft")
+        #expect(blueprint.project.bundleIdPrefix == "com.axiomorient")
+        #expect(blueprint.project.deploymentTarget == "18.0")
 
-        XCTAssertEqual(blueprint.requirements.reqIds, ["REQ-001", "REQ-002"])
-        XCTAssertEqual(blueprint.requirements.screens, ["SCR_TODAY_HOME", "SCR_CHAT_THREAD"])
+        #expect(blueprint.requirements.reqIds == ["REQ-001", "REQ-002"])
+        #expect(blueprint.requirements.screens == ["SCR_TODAY_HOME", "SCR_CHAT_THREAD"])
 
-        XCTAssertEqual(blueprint.modules.features, ["Root", "TodayHome", "ChatThread"])
-        XCTAssertEqual(blueprint.modules.domains, ["User", "Routine", "Session"])
-        XCTAssertEqual(blueprint.modules.services, ["UserService", "RoutineService", "SessionService"])
-        XCTAssertEqual(blueprint.modules.shared, ["Core", "DesignSystem"])
+        #expect(blueprint.modules.features == ["Root", "TodayHome", "ChatThread"])
+        #expect(blueprint.modules.domains == ["User", "Routine", "Session"])
+        #expect(blueprint.modules.services == ["UserService", "RoutineService", "SessionService"])
+        #expect(blueprint.modules.shared == ["Core", "DesignSystem"])
 
-        XCTAssertEqual(blueprint.release.fastlane.appIdentifier, "com.axiomorient.daycraft")
-        XCTAssertEqual(blueprint.release.fastlane.appleTeamId, "A1B2C3D4E5")
+        #expect(blueprint.release.fastlane.appIdentifier == "com.axiomorient.daycraft")
+        #expect(blueprint.release.fastlane.appleTeamId == "A1B2C3D4E5")
     }
 
-    func testMissingReqIDsFailsHard() throws {
+    @Test func missingReqIDsFailsHard() throws {
         let prd = """
         Project: Daycraft
         App Identifier: com.axiomorient.daycraft
@@ -56,12 +57,17 @@ final class PlanEngineIntegrationTests: XCTestCase {
         - Entity: User
         """
 
-        XCTAssertThrowsError(try engine.generateBlueprint(prd: prd, profile: makeProfile())) { error in
-            XCTAssertEqual(error as? PlanEngineError, .missingReqIDs)
+        do {
+            _ = try engine.generateBlueprint(prd: prd, profile: makeProfile())
+            Issue.record("expected PlanEngineError.missingReqIDs to be thrown")
+        } catch let error as PlanEngineError {
+            #expect(error == .missingReqIDs)
+        } catch {
+            Issue.record("unexpected error: \(error)")
         }
     }
 
-    func testMissingScreensFailsHard() throws {
+    @Test func missingScreensFailsHard() throws {
         let prd = """
         Project: Daycraft
         App Identifier: com.axiomorient.daycraft
@@ -74,12 +80,17 @@ final class PlanEngineIntegrationTests: XCTestCase {
         - Entity: User
         """
 
-        XCTAssertThrowsError(try engine.generateBlueprint(prd: prd, profile: makeProfile())) { error in
-            XCTAssertEqual(error as? PlanEngineError, .missingScreens)
+        do {
+            _ = try engine.generateBlueprint(prd: prd, profile: makeProfile())
+            Issue.record("expected PlanEngineError.missingScreens to be thrown")
+        } catch let error as PlanEngineError {
+            #expect(error == .missingScreens)
+        } catch {
+            Issue.record("unexpected error: \(error)")
         }
     }
 
-    func testMissingEntitiesFailsHard() throws {
+    @Test func missingEntitiesFailsHard() throws {
         let prd = """
         Project: Daycraft
         App Identifier: com.axiomorient.daycraft
@@ -92,12 +103,17 @@ final class PlanEngineIntegrationTests: XCTestCase {
         - SCR_TODAY_HOME
         """
 
-        XCTAssertThrowsError(try engine.generateBlueprint(prd: prd, profile: makeProfile())) { error in
-            XCTAssertEqual(error as? PlanEngineError, .missingEntities)
+        do {
+            _ = try engine.generateBlueprint(prd: prd, profile: makeProfile())
+            Issue.record("expected PlanEngineError.missingEntities to be thrown")
+        } catch let error as PlanEngineError {
+            #expect(error == .missingEntities)
+        } catch {
+            Issue.record("unexpected error: \(error)")
         }
     }
 
-    func testGenerateBlueprintPreservesPascalCaseEntityNames() throws {
+    @Test func generateBlueprintPreservesPascalCaseEntityNames() throws {
         let prd = """
         Project: Aether
         App Identifier: com.axient.aether
@@ -117,11 +133,11 @@ final class PlanEngineIntegrationTests: XCTestCase {
 
         let blueprint = try engine.generateBlueprint(prd: prd, profile: makeProfile())
 
-        XCTAssertEqual(blueprint.modules.domains, ["DraftItem", "FocusSession", "SpeechCaptureSession"])
-        XCTAssertEqual(blueprint.modules.services, ["DraftItemService", "FocusSessionService", "SpeechCaptureSessionService"])
+        #expect(blueprint.modules.domains == ["DraftItem", "FocusSession", "SpeechCaptureSession"])
+        #expect(blueprint.modules.services == ["DraftItemService", "FocusSessionService", "SpeechCaptureSessionService"])
     }
 
-    func testDerivePRDFromPlanTextExtractsFRScreensAndEntities() throws {
+    @Test func derivePRDFromPlanTextExtractsFRScreensAndEntities() throws {
         let planText = """
         # Aether v4 Master Spec
 
@@ -157,11 +173,11 @@ final class PlanEngineIntegrationTests: XCTestCase {
         )
         let blueprint = try engine.generateBlueprint(prd: prd, profile: makeProfile())
 
-        XCTAssertEqual(blueprint.requirements.reqIds, ["REQ-001", "REQ-002", "REQ-010"])
-        XCTAssertTrue(blueprint.requirements.screens.contains("SCR_TODAY"))
-        XCTAssertTrue(blueprint.requirements.screens.contains("SCR_WEEKLY_REVIEW"))
-        XCTAssertEqual(
-            blueprint.modules.domains,
+        #expect(blueprint.requirements.reqIds == ["REQ-001", "REQ-002", "REQ-010"])
+        #expect(blueprint.requirements.screens.contains("SCR_TODAY"))
+        #expect(blueprint.requirements.screens.contains("SCR_WEEKLY_REVIEW"))
+        #expect(
+            blueprint.modules.domains ==
             ["Item", "DraftItem", "FocusSession", "ReflectionRecord", "SpeechCaptureSession"]
         )
     }

@@ -1,11 +1,12 @@
 import Foundation
-import XCTest
+import Testing
 @testable import BosCore
 
-final class ReleaseInitEngineIntegrationTests: XCTestCase {
+@Suite
+struct ReleaseInitEngineIntegrationTests {
     private let engine = ReleaseInitEngine()
 
-    func testReleaseInitGeneratesFastlaneFilesAndParsesDefaultLanes() throws {
+    @Test func releaseInitGeneratesFastlaneFilesAndParsesDefaultLanes() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -18,41 +19,41 @@ final class ReleaseInitEngineIntegrationTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(result.lanes, ["certs", "build", "beta", "release", "release_metadata"])
-        XCTAssertEqual(result.generatedFiles.count, 4)
-        XCTAssertEqual(result.artifacts.count, 2)
+        #expect(result.lanes == ["certs", "build", "beta", "release", "release_metadata"])
+        #expect(result.generatedFiles.count == 4)
+        #expect(result.artifacts.count == 2)
 
         let fastfile = root.appending(path: "fastlane/Fastfile")
         let appfile = root.appending(path: "fastlane/Appfile")
         let matchfile = root.appending(path: "fastlane/Matchfile")
         let metadata = root.appending(path: "fastlane/metadata/en-US/release_notes.txt")
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: fastfile.path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: appfile.path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: matchfile.path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: metadata.path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: fastfile.path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: appfile.path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: matchfile.path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: metadata.path(percentEncoded: false)))
 
         let appfileContent = try String(contentsOf: appfile, encoding: .utf8)
-        XCTAssertTrue(appfileContent.contains("app_identifier(\"com.axiomorient.daycraft\")"))
-        XCTAssertTrue(appfileContent.contains("team_id(\"A1B2C3D4E5\")"))
+        #expect(appfileContent.contains("app_identifier(\"com.axiomorient.daycraft\")"))
+        #expect(appfileContent.contains("team_id(\"A1B2C3D4E5\")"))
 
         let fastfileContent = try String(contentsOf: fastfile, encoding: .utf8)
-        XCTAssertTrue(fastfileContent.contains("private_lane :asc_api_key do"))
-        XCTAssertTrue(fastfileContent.contains("lane :certs do"))
-        XCTAssertTrue(fastfileContent.contains("sync_code_signing(type: \"appstore\", readonly: false, api_key: asc_api_key)"))
-        XCTAssertTrue(fastfileContent.contains("lane :build do"))
-        XCTAssertTrue(fastfileContent.contains("lane :beta do"))
-        XCTAssertTrue(fastfileContent.contains("api_key = asc_api_key"))
-        XCTAssertTrue(fastfileContent.contains("lane :release do"))
-        XCTAssertTrue(fastfileContent.contains("lane :release_metadata do"))
+        #expect(fastfileContent.contains("private_lane :asc_api_key do"))
+        #expect(fastfileContent.contains("lane :certs do"))
+        #expect(fastfileContent.contains("sync_code_signing(type: \"appstore\", readonly: false, api_key: asc_api_key)"))
+        #expect(fastfileContent.contains("lane :build do"))
+        #expect(fastfileContent.contains("lane :beta do"))
+        #expect(fastfileContent.contains("api_key = asc_api_key"))
+        #expect(fastfileContent.contains("lane :release do"))
+        #expect(fastfileContent.contains("lane :release_metadata do"))
 
-        let logPath = try XCTUnwrap(result.artifacts.first(where: { $0.hasSuffix(".log") }))
+        let logPath = try #require(result.artifacts.first(where: { $0.hasSuffix(".log") }))
         let log = try String(contentsOfFile: logPath, encoding: .utf8)
-        XCTAssertTrue(log.contains("requiredEnvChecked=ASC_ISSUER_ID,ASC_KEY_ID,ASC_KEY_P8_BASE64,MATCH_GIT_URL,MATCH_PASSWORD"))
-        XCTAssertFalse(log.contains("super-secret"))
+        #expect(log.contains("requiredEnvChecked=ASC_ISSUER_ID,ASC_KEY_ID,ASC_KEY_P8_BASE64,MATCH_GIT_URL,MATCH_PASSWORD"))
+        #expect(!log.contains("super-secret"))
     }
 
-    func testReleaseInitFailsWhenRequiredEnvironmentIsMissing() throws {
+    @Test func releaseInitFailsWhenRequiredEnvironmentIsMissing() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -60,8 +61,8 @@ final class ReleaseInitEngineIntegrationTests: XCTestCase {
         env["MATCH_PASSWORD"] = nil
         env["ASC_KEY_ID"] = ""
 
-        XCTAssertThrowsError(
-            try engine.releaseInit(
+        do {
+            _ = try engine.releaseInit(
                 request: ReleaseInitRequest(
                     projectRoot: root,
                     blueprint: try makeBlueprint(),
@@ -69,15 +70,15 @@ final class ReleaseInitEngineIntegrationTests: XCTestCase {
                     environment: env
                 )
             )
-        ) { error in
-            guard case ReleaseInitEngineError.missingRequiredEnvironment(let keys) = error else {
-                return XCTFail("unexpected error: \(error)")
-            }
-            XCTAssertEqual(keys, ["ASC_KEY_ID", "MATCH_PASSWORD"])
+            Issue.record("expected ReleaseInitEngineError.missingRequiredEnvironment to be thrown")
+        } catch ReleaseInitEngineError.missingRequiredEnvironment(let keys) {
+            #expect(keys == ["ASC_KEY_ID", "MATCH_PASSWORD"])
+        } catch {
+            Issue.record("unexpected error: \(error)")
         }
     }
 
-    func testReleaseInitFailsWhenRequiredEnvironmentFormatIsInvalid() throws {
+    @Test func releaseInitFailsWhenRequiredEnvironmentFormatIsInvalid() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -87,8 +88,8 @@ final class ReleaseInitEngineIntegrationTests: XCTestCase {
         env["ASC_KEY_P8_BASE64"] = "not-base64"
         env["MATCH_GIT_URL"] = "ftp://example.com/repo"
 
-        XCTAssertThrowsError(
-            try engine.releaseInit(
+        do {
+            _ = try engine.releaseInit(
                 request: ReleaseInitRequest(
                     projectRoot: root,
                     blueprint: try makeBlueprint(),
@@ -96,18 +97,18 @@ final class ReleaseInitEngineIntegrationTests: XCTestCase {
                     environment: env
                 )
             )
-        ) { error in
-            guard case ReleaseInitEngineError.invalidEnvironmentFormat(let details) = error else {
-                return XCTFail("unexpected error: \(error)")
-            }
-            XCTAssertTrue(details.contains("ASC_ISSUER_ID(UUID format)"))
-            XCTAssertTrue(details.contains("ASC_KEY_ID(10 uppercase letters/digits)"))
-            XCTAssertTrue(details.contains("ASC_KEY_P8_BASE64(valid base64-encoded key content)"))
-            XCTAssertTrue(details.contains("MATCH_GIT_URL(git@host:path(.git) or https://... or ssh://...)"))
+            Issue.record("expected ReleaseInitEngineError.invalidEnvironmentFormat to be thrown")
+        } catch ReleaseInitEngineError.invalidEnvironmentFormat(let details) {
+            #expect(details.contains("ASC_ISSUER_ID(UUID format)"))
+            #expect(details.contains("ASC_KEY_ID(10 uppercase letters/digits)"))
+            #expect(details.contains("ASC_KEY_P8_BASE64(valid base64-encoded key content)"))
+            #expect(details.contains("MATCH_GIT_URL(git@host:path(.git) or https://... or ssh://...)"))
+        } catch {
+            Issue.record("unexpected error: \(error)")
         }
     }
 
-    func testReleaseInitUpdatesBootstrapStateSummaryOnSuccess() throws {
+    @Test func releaseInitUpdatesBootstrapStateSummaryOnSuccess() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
         try writeBootstrapStateFixture(root: root)
@@ -123,12 +124,12 @@ final class ReleaseInitEngineIntegrationTests: XCTestCase {
 
         let statePath = root.appending(path: ".bos/state/bos.state.yaml")
         let state = try String(contentsOf: statePath, encoding: .utf8)
-        XCTAssertTrue(state.contains("releaseSummary:"))
-        XCTAssertTrue(state.contains("status: \"success\""))
-        XCTAssertTrue(state.contains("message: \"release-init completed\""))
+        #expect(state.contains("releaseSummary:"))
+        #expect(state.contains("status: \"success\""))
+        #expect(state.contains("message: \"release-init completed\""))
     }
 
-    func testReleaseInitUpdatesBootstrapStateSummaryOnMissingEnvironmentFailure() throws {
+    @Test func releaseInitUpdatesBootstrapStateSummaryOnMissingEnvironmentFailure() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
         try writeBootstrapStateFixture(root: root)
@@ -136,8 +137,8 @@ final class ReleaseInitEngineIntegrationTests: XCTestCase {
         var env = requiredEnvironment()
         env["MATCH_PASSWORD"] = nil
 
-        XCTAssertThrowsError(
-            try engine.releaseInit(
+        do {
+            _ = try engine.releaseInit(
                 request: ReleaseInitRequest(
                     projectRoot: root,
                     blueprint: try makeBlueprint(),
@@ -145,18 +146,18 @@ final class ReleaseInitEngineIntegrationTests: XCTestCase {
                     environment: env
                 )
             )
-        ) { error in
-            guard case ReleaseInitEngineError.missingRequiredEnvironment(let keys) = error else {
-                return XCTFail("unexpected error: \(error)")
-            }
-            XCTAssertEqual(keys, ["MATCH_PASSWORD"])
+            Issue.record("expected ReleaseInitEngineError.missingRequiredEnvironment to be thrown")
+        } catch ReleaseInitEngineError.missingRequiredEnvironment(let keys) {
+            #expect(keys == ["MATCH_PASSWORD"])
+        } catch {
+            Issue.record("unexpected error: \(error)")
         }
 
         let statePath = root.appending(path: ".bos/state/bos.state.yaml")
         let state = try String(contentsOf: statePath, encoding: .utf8)
-        XCTAssertTrue(state.contains("releaseSummary:"))
-        XCTAssertTrue(state.contains("status: \"failed\""))
-        XCTAssertTrue(state.contains("missing required environment: MATCH_PASSWORD"))
+        #expect(state.contains("releaseSummary:"))
+        #expect(state.contains("status: \"failed\""))
+        #expect(state.contains("missing required environment: MATCH_PASSWORD"))
     }
 }
 

@@ -1,11 +1,13 @@
 import Foundation
-import XCTest
+import os
+import Testing
 @testable import BosCore
 
-final class ProfilePolicyE2ETests: XCTestCase {
+@Suite
+struct ProfilePolicyE2ETests {
     private let applyEngine = ApplyEngine()
 
-    func testApplyAndVerifySucceedForDefaultPolicyFile() throws {
+    @Test func applyAndVerifySucceedForDefaultPolicyFile() throws {
         let fixturesRoot = repositoryRoot().appending(path: "Tests/Fixtures")
         let daycraft = try loadProfile(from: fixturesRoot.appending(path: "daycraft.yaml"))
 
@@ -15,10 +17,12 @@ final class ProfilePolicyE2ETests: XCTestCase {
 
 private extension ProfilePolicyE2ETests {
     final class VerifyRunnerStub: VerifyCommandRunning {
-        private(set) var commands: [[String]] = []
+        private let commandsLock = OSAllocatedUnfairLock(initialState: [[String]]())
+
+        var commands: [[String]] { commandsLock.withLock { $0 } }
 
         func run(command: [String], in workingDirectory: URL) throws -> VerifyCommandResult {
-            commands.append(command)
+            commandsLock.withLock { $0.append(command) }
             return VerifyCommandResult(exitCode: 0)
         }
     }
@@ -44,10 +48,10 @@ private extension ProfilePolicyE2ETests {
             request: VerifyRequest(projectRoot: root, profile: profile)
         )
 
-        XCTAssertFalse(verifyResult.artifacts.isEmpty)
-        XCTAssertEqual(runner.commands.count, 4)
-        XCTAssertEqual(runner.commands[2], ["xcodebuild", "build", "-scheme", expectedScheme])
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "Projects/App/Project.swift").path(percentEncoded: false)))
+        #expect(!verifyResult.artifacts.isEmpty)
+        #expect(runner.commands.count == 4)
+        #expect(runner.commands[2] == ["xcodebuild", "build", "-scheme", expectedScheme])
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "Projects/App/Project.swift").path(percentEncoded: false)))
     }
 
     func loadProfile(from path: URL) throws -> ProfileV1 {

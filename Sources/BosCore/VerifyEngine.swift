@@ -1,6 +1,6 @@
 import Foundation
 
-public protocol VerifyCommandRunning {
+public protocol VerifyCommandRunning: Sendable {
     func run(command: [String], in workingDirectory: URL) throws -> VerifyCommandResult
 }
 

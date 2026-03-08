@@ -132,14 +132,6 @@ extension ApplyEngine {
         let fullBlock: String
     }
 
-    private struct ArtifactPayload: Codable {
-        let command: String
-        let status: String
-        let exitCode: Int
-        let summary: String
-        let artifacts: [String]
-    }
-
     private func applyInit(request: ApplyRequest) throws -> ApplyResult {
         let root = request.projectRoot.standardizedFileURL
         let fm = FileManager.default
@@ -650,7 +642,7 @@ extension ApplyEngine {
     }
 
     private func writeArtifact(to path: URL, summary: String, artifacts: [String]) throws {
-        let payload = ArtifactPayload(
+        let payload = CommandOutputV1(
             command: "apply",
             status: "success",
             exitCode: 0,

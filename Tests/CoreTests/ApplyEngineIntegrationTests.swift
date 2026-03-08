@@ -1,11 +1,12 @@
 import Foundation
-import XCTest
+import Testing
 @testable import BosCore
 
-final class ApplyEngineIntegrationTests: XCTestCase {
+@Suite
+struct ApplyEngineIntegrationTests {
     private let engine = ApplyEngine()
 
-    func testInitModeGeneratesTuistScaffoldAndManagedBlock() throws {
+    @Test func initModeGeneratesTuistScaffoldAndManagedBlock() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -20,71 +21,71 @@ final class ApplyEngineIntegrationTests: XCTestCase {
 
         let appComposition = root.appending(path: "Projects/App/Sources/Dependencies/AppComposition.swift")
         let composition = try String(contentsOf: appComposition, encoding: .utf8)
-        XCTAssertTrue(composition.contains("// bootstrap:begin app.dependencies"))
-        XCTAssertTrue(composition.contains("// bootstrap:end app.dependencies"))
-        XCTAssertTrue(composition.contains("// FeatureRoot"))
-        XCTAssertTrue(composition.contains("// FeatureToday"))
-        XCTAssertTrue(composition.contains("// DomainUser"))
-        XCTAssertTrue(composition.contains("// ServiceAuth"))
+        #expect(composition.contains("// bootstrap:begin app.dependencies"))
+        #expect(composition.contains("// bootstrap:end app.dependencies"))
+        #expect(composition.contains("// FeatureRoot"))
+        #expect(composition.contains("// FeatureToday"))
+        #expect(composition.contains("// DomainUser"))
+        #expect(composition.contains("// ServiceAuth"))
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "Tuist.swift").path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "Workspace.swift").path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "Tuist/Package.swift").path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "AGENTS.md").path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "CLAUDE.md").path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "Rules/RULES.md").path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "Rules/L1_universal/Tuist.md").path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "Rules/L2_project/TechStack.md").path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "Tuist/Plugins/tma/Plugin.swift").path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "Tuist/Plugins/tma/Templates/app/app.swift").path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "Projects/App/Project.swift").path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "Projects/Domains/User/Project.swift").path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "Projects/Features/Today/Project.swift").path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "Projects/Services/Auth/Project.swift").path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "Projects/Shared/Core/Project.swift").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "Tuist.swift").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "Workspace.swift").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "Tuist/Package.swift").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "AGENTS.md").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "CLAUDE.md").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "Rules/RULES.md").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "Rules/L1_universal/Tuist.md").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "Rules/L2_project/TechStack.md").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "Tuist/Plugins/tma/Plugin.swift").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "Tuist/Plugins/tma/Templates/app/app.swift").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "Projects/App/Project.swift").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "Projects/Domains/User/Project.swift").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "Projects/Features/Today/Project.swift").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "Projects/Services/Auth/Project.swift").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "Projects/Shared/Core/Project.swift").path(percentEncoded: false)))
 
         let packageText = try String(contentsOf: root.appending(path: "Tuist/Package.swift"), encoding: .utf8)
-        XCTAssertTrue(packageText.contains("swift-composable-architecture"))
-        XCTAssertTrue(packageText.contains("swift-dependencies"))
-        XCTAssertTrue(packageText.contains("swift-navigation"))
-        XCTAssertTrue(packageText.contains("sqlite-data"))
-        XCTAssertTrue(packageText.contains("swift-identified-collections"))
-        XCTAssertTrue(packageText.contains("from: \"2.4.0\""))
-        XCTAssertTrue(packageText.contains("from: \"1.6.0\""))
-        XCTAssertTrue(packageText.contains("from: \"1.1.0\""))
+        #expect(packageText.contains("swift-composable-architecture"))
+        #expect(packageText.contains("swift-dependencies"))
+        #expect(packageText.contains("swift-navigation"))
+        #expect(packageText.contains("sqlite-data"))
+        #expect(packageText.contains("swift-identified-collections"))
+        #expect(packageText.contains("from: \"2.4.0\""))
+        #expect(packageText.contains("from: \"1.6.0\""))
+        #expect(packageText.contains("from: \"1.1.0\""))
         let agentsText = try String(contentsOf: root.appending(path: "AGENTS.md"), encoding: .utf8)
-        XCTAssertTrue(agentsText.contains("# AGENTS.md (L0: Universal Behavior Rules)"))
+        #expect(agentsText.contains("# AGENTS.md (L0: Universal Behavior Rules)"))
         let claudeText = try String(contentsOf: root.appending(path: "CLAUDE.md"), encoding: .utf8)
-        XCTAssertTrue(claudeText.contains("# CLAUDE.md (L2: Project Absolute Rules)"))
+        #expect(claudeText.contains("# CLAUDE.md (L2: Project Absolute Rules)"))
         let techStackText = try String(contentsOf: root.appending(path: "Rules/L2_project/TechStack.md"), encoding: .utf8)
-        XCTAssertTrue(techStackText.contains("swift-navigation"))
-        XCTAssertTrue(techStackText.contains("swift-identified-collections"))
-        XCTAssertFalse(techStackText.contains("firebase-ios-sdk"))
+        #expect(techStackText.contains("swift-navigation"))
+        #expect(techStackText.contains("swift-identified-collections"))
+        #expect(!techStackText.contains("firebase-ios-sdk"))
         let tuistText = try String(contentsOf: root.appending(path: "Tuist.swift"), encoding: .utf8)
-        XCTAssertTrue(tuistText.contains(#".local(path: .relativeToRoot("Tuist/Plugins/tma"))"#))
-        XCTAssertFalse(tuistText.contains("/Users/axient/repository/tma"))
+        #expect(tuistText.contains(#".local(path: .relativeToRoot("Tuist/Plugins/tma"))"#))
+        #expect(!tuistText.contains("/Users/axient/repository/tma"))
         let appProjectText = try String(contentsOf: root.appending(path: "Projects/App/Project.swift"), encoding: .utf8)
-        XCTAssertTrue(appProjectText.contains(#"let teamID = "A1B2C3D4E5""#))
-        XCTAssertTrue(appProjectText.contains(#""DEVELOPMENT_TEAM": .string(teamID)"#))
+        #expect(appProjectText.contains(#"let teamID = "A1B2C3D4E5""#))
+        #expect(appProjectText.contains(#""DEVELOPMENT_TEAM": .string(teamID)"#))
         let domainProjectText = try String(contentsOf: root.appending(path: "Projects/Domains/User/Project.swift"), encoding: .utf8)
-        XCTAssertTrue(domainProjectText.contains(#"let teamID = "A1B2C3D4E5""#))
-        XCTAssertTrue(domainProjectText.contains(#""DEVELOPMENT_TEAM": .string(teamID)"#))
+        #expect(domainProjectText.contains(#"let teamID = "A1B2C3D4E5""#))
+        #expect(domainProjectText.contains(#""DEVELOPMENT_TEAM": .string(teamID)"#))
 
         let stateFile = root.appending(path: ".bos/state/bos.state.yaml")
         let lockText = try String(contentsOf: stateFile, encoding: .utf8)
-        XCTAssertTrue(lockText.contains("blueprintHash:"))
-        XCTAssertTrue(lockText.contains("profileHash:"))
-        XCTAssertTrue(lockText.contains("managedFiles:"))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appending(path: "bos.lock.yaml").path(percentEncoded: false)))
+        #expect(lockText.contains("blueprintHash:"))
+        #expect(lockText.contains("profileHash:"))
+        #expect(lockText.contains("managedFiles:"))
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "bos.lock.yaml").path(percentEncoded: false)))
 
-        XCTAssertEqual(result.managedFiles.count, 1)
-        XCTAssertEqual(result.artifacts.count, 1)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: result.lockFile))
-        XCTAssertTrue(result.lockFile.hasSuffix(".bos/state/bos.state.yaml"))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: result.artifacts[0]))
+        #expect(result.managedFiles.count == 1)
+        #expect(result.artifacts.count == 1)
+        #expect(FileManager.default.fileExists(atPath: result.lockFile))
+        #expect(result.lockFile.hasSuffix(".bos/state/bos.state.yaml"))
+        #expect(FileManager.default.fileExists(atPath: result.artifacts[0]))
     }
 
-    func testIncrementalDriftFailsWithoutFixWhenManagedBlockChanged() throws {
+    @Test func incrementalDriftFailsWithoutFixWhenManagedBlockChanged() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -95,8 +96,8 @@ final class ApplyEngineIntegrationTests: XCTestCase {
             .replacingOccurrences(of: "// FeatureToday", with: "// FeatureTodayDrifted")
         try Data(drifted.utf8).write(to: target, options: .atomic)
 
-        XCTAssertThrowsError(
-            try engine.apply(
+        do {
+            _ = try engine.apply(
                 request: ApplyRequest(
                     projectRoot: root,
                     blueprint: try makeBlueprint(),
@@ -105,15 +106,15 @@ final class ApplyEngineIntegrationTests: XCTestCase {
                     fix: false
                 )
             )
-        ) { error in
-            guard case ApplyEngineError.driftDetected(let path) = error else {
-                return XCTFail("unexpected error: \(error)")
-            }
-            XCTAssertTrue(path.hasSuffix("Projects/App/Sources/Dependencies/AppComposition.swift"))
+            Issue.record("expected ApplyEngineError.driftDetected to be thrown")
+        } catch ApplyEngineError.driftDetected(let path) {
+            #expect(path.hasSuffix("Projects/App/Sources/Dependencies/AppComposition.swift"))
+        } catch {
+            Issue.record("unexpected error: \(error)")
         }
     }
 
-    func testIncrementalFixRepairsManagedBlock() throws {
+    @Test func incrementalFixRepairsManagedBlock() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -135,11 +136,11 @@ final class ApplyEngineIntegrationTests: XCTestCase {
         )
 
         let repaired = try String(contentsOf: target, encoding: .utf8)
-        XCTAssertFalse(repaired.contains("// FeatureTodayDrifted"))
-        XCTAssertTrue(repaired.contains("// FeatureToday"))
+        #expect(!repaired.contains("// FeatureTodayDrifted"))
+        #expect(repaired.contains("// FeatureToday"))
     }
 
-    func testIncrementalFailsWhenOutsideManagedAreaChangedEvenWithFix() throws {
+    @Test func incrementalFailsWhenOutsideManagedAreaChangedEvenWithFix() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -150,8 +151,8 @@ final class ApplyEngineIntegrationTests: XCTestCase {
             .replacingOccurrences(of: "import Dependencies", with: "import Foundation")
         try Data(drifted.utf8).write(to: target, options: .atomic)
 
-        XCTAssertThrowsError(
-            try engine.apply(
+        do {
+            _ = try engine.apply(
                 request: ApplyRequest(
                     projectRoot: root,
                     blueprint: try makeBlueprint(),
@@ -160,15 +161,15 @@ final class ApplyEngineIntegrationTests: XCTestCase {
                     fix: true
                 )
             )
-        ) { error in
-            guard case ApplyEngineError.outsideManagedAreaChanged(let path) = error else {
-                return XCTFail("unexpected error: \(error)")
-            }
-            XCTAssertTrue(path.hasSuffix("Projects/App/Sources/Dependencies/AppComposition.swift"))
+            Issue.record("expected ApplyEngineError.outsideManagedAreaChanged to be thrown")
+        } catch ApplyEngineError.outsideManagedAreaChanged(let path) {
+            #expect(path.hasSuffix("Projects/App/Sources/Dependencies/AppComposition.swift"))
+        } catch {
+            Issue.record("unexpected error: \(error)")
         }
     }
 
-    func testIncrementalManagedBlockMissingFailsWithoutFix() throws {
+    @Test func incrementalManagedBlockMissingFailsWithoutFix() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -185,8 +186,8 @@ final class ApplyEngineIntegrationTests: XCTestCase {
         """
         try Data(noMarkers.utf8).write(to: target, options: .atomic)
 
-        XCTAssertThrowsError(
-            try engine.apply(
+        do {
+            _ = try engine.apply(
                 request: ApplyRequest(
                     projectRoot: root,
                     blueprint: try makeBlueprint(),
@@ -195,15 +196,15 @@ final class ApplyEngineIntegrationTests: XCTestCase {
                     fix: false
                 )
             )
-        ) { error in
-            guard case ApplyEngineError.managedBlockMissing(let path) = error else {
-                return XCTFail("unexpected error: \(error)")
-            }
-            XCTAssertTrue(path.hasSuffix("Projects/App/Sources/Dependencies/AppComposition.swift"))
+            Issue.record("expected ApplyEngineError.managedBlockMissing to be thrown")
+        } catch ApplyEngineError.managedBlockMissing(let path) {
+            #expect(path.hasSuffix("Projects/App/Sources/Dependencies/AppComposition.swift"))
+        } catch {
+            Issue.record("unexpected error: \(error)")
         }
     }
 
-    func testIncrementalFixInsertsManagedBlockWhenMissing() throws {
+    @Test func incrementalFixInsertsManagedBlockWhenMissing() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -231,12 +232,12 @@ final class ApplyEngineIntegrationTests: XCTestCase {
         )
 
         let updated = try String(contentsOf: target, encoding: .utf8)
-        XCTAssertTrue(updated.contains("// bootstrap:begin app.dependencies"))
-        XCTAssertTrue(updated.contains("// bootstrap:end app.dependencies"))
-        XCTAssertTrue(updated.contains("// FeatureToday"))
+        #expect(updated.contains("// bootstrap:begin app.dependencies"))
+        #expect(updated.contains("// bootstrap:end app.dependencies"))
+        #expect(updated.contains("// FeatureToday"))
     }
 
-    func testInitNormalizesServiceSuffixToAvoidDoubleServiceInTypeNames() throws {
+    @Test func initNormalizesServiceSuffixToAvoidDoubleServiceInTypeNames() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -251,17 +252,17 @@ final class ApplyEngineIntegrationTests: XCTestCase {
         )
 
         let expectedFile = root.appending(path: "Projects/Services/User/Interface/UserService.swift")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: expectedFile.path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: expectedFile.path(percentEncoded: false)))
 
         let appComposition = try String(
             contentsOf: root.appending(path: "Projects/App/Sources/Dependencies/AppComposition.swift"),
             encoding: .utf8
         )
-        XCTAssertTrue(appComposition.contains("// ServiceUser"))
-        XCTAssertFalse(appComposition.contains("// ServiceUserService"))
+        #expect(appComposition.contains("// ServiceUser"))
+        #expect(!appComposition.contains("// ServiceUserService"))
     }
 
-    func testInitDoesNotOverwriteExistingModuleFile() throws {
+    @Test func initDoesNotOverwriteExistingModuleFile() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -287,10 +288,10 @@ final class ApplyEngineIntegrationTests: XCTestCase {
         )
 
         let after = try String(contentsOf: target, encoding: .utf8)
-        XCTAssertEqual(after, customContent)
+        #expect(after == customContent)
     }
 
-    func testInitDoesNotOverwriteExistingRootGuideFiles() throws {
+    @Test func initDoesNotOverwriteExistingRootGuideFiles() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -315,13 +316,13 @@ final class ApplyEngineIntegrationTests: XCTestCase {
         )
 
         let agentsAfter = try String(contentsOf: agents, encoding: .utf8)
-        XCTAssertEqual(agentsAfter, customAgents)
+        #expect(agentsAfter == customAgents)
         let rulesAfter = try String(contentsOf: customRules, encoding: .utf8)
-        XCTAssertEqual(rulesAfter, customRulesText)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appending(path: "CLAUDE.md").path(percentEncoded: false)))
+        #expect(rulesAfter == customRulesText)
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "CLAUDE.md").path(percentEncoded: false)))
     }
 
-    func testInitPreservesPascalCaseModuleDirectoryNames() throws {
+    @Test func initPreservesPascalCaseModuleDirectoryNames() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -341,12 +342,12 @@ final class ApplyEngineIntegrationTests: XCTestCase {
         )
 
         let fm = FileManager.default
-        XCTAssertTrue(fm.fileExists(atPath: root.appending(path: "Projects/Features/WeeklyReview/Project.swift").path(percentEncoded: false)))
-        XCTAssertTrue(fm.fileExists(atPath: root.appending(path: "Projects/Domains/DraftItem/Project.swift").path(percentEncoded: false)))
-        XCTAssertTrue(fm.fileExists(atPath: root.appending(path: "Projects/Domains/FocusSession/Project.swift").path(percentEncoded: false)))
-        XCTAssertTrue(fm.fileExists(atPath: root.appending(path: "Projects/Services/SpeechCaptureSession/Project.swift").path(percentEncoded: false)))
-        XCTAssertTrue(fm.fileExists(atPath: root.appending(path: "Projects/Services/ReviewDecision/Project.swift").path(percentEncoded: false)))
-        XCTAssertTrue(fm.fileExists(atPath: root.appending(path: "Projects/Shared/DesignSystem/Project.swift").path(percentEncoded: false)))
+        #expect(fm.fileExists(atPath: root.appending(path: "Projects/Features/WeeklyReview/Project.swift").path(percentEncoded: false)))
+        #expect(fm.fileExists(atPath: root.appending(path: "Projects/Domains/DraftItem/Project.swift").path(percentEncoded: false)))
+        #expect(fm.fileExists(atPath: root.appending(path: "Projects/Domains/FocusSession/Project.swift").path(percentEncoded: false)))
+        #expect(fm.fileExists(atPath: root.appending(path: "Projects/Services/SpeechCaptureSession/Project.swift").path(percentEncoded: false)))
+        #expect(fm.fileExists(atPath: root.appending(path: "Projects/Services/ReviewDecision/Project.swift").path(percentEncoded: false)))
+        #expect(fm.fileExists(atPath: root.appending(path: "Projects/Shared/DesignSystem/Project.swift").path(percentEncoded: false)))
     }
 }
 

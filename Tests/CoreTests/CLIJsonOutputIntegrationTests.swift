@@ -1,11 +1,12 @@
 import Foundation
-import XCTest
+import Testing
 @testable import BosCore
 
-final class CLIJsonOutputIntegrationTests: XCTestCase {
+@Suite(.serialized)
+struct CLIJsonOutputIntegrationTests {
     // Contract intent: malformed CLI options must fail fast with parseable JSON
     // without touching external tools.
-    func testCommandsReturnParseableJSONOnContractErrors() throws {
+    @Test func commandsReturnParseableJSONOnContractErrors() throws {
         let cases: [(command: String, args: [String])] = [
             ("doctor", ["doctor", "--project-root", "--format", "json"]),
             ("plan", ["plan", "--prd", "--format", "json"]),
@@ -16,27 +17,27 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
 
         for item in cases {
             let result = try runBootstrap(args: item.args, timeoutSeconds: 10)
-            XCTAssertEqual(result.status, 2, "unexpected exit for command=\(item.command)")
+            #expect(result.status == 2, "unexpected exit for command=\(item.command)")
             let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(result.stdout.utf8))
-            XCTAssertEqual(payload.command, item.command)
-            XCTAssertEqual(payload.status, "failed")
-            XCTAssertEqual(payload.exitCode, 2)
+            #expect(payload.command == item.command)
+            #expect(payload.status == "failed")
+            #expect(payload.exitCode == 2)
         }
     }
 
-    func testDoctorRejectsLegacyInstallFlag() throws {
+    @Test func doctorRejectsLegacyInstallFlag() throws {
         let result = try runBootstrap(args: ["doctor", "--install", "--format", "json"], timeoutSeconds: 10)
-        XCTAssertEqual(result.status, 2)
+        #expect(result.status == 2)
         let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(result.stdout.utf8))
-        XCTAssertEqual(payload.command, "doctor")
-        XCTAssertEqual(payload.status, "failed")
-        XCTAssertEqual(payload.exitCode, 2)
-        XCTAssertTrue(payload.summary.contains("unknown flag(s): --install"))
+        #expect(payload.command == "doctor")
+        #expect(payload.status == "failed")
+        #expect(payload.exitCode == 2)
+        #expect(payload.summary.contains("unknown flag(s): --install"))
     }
 
     // Behavior intent: verify execution failure must still return parseable JSON
     // with verify-specific failure code and summary.
-    func testVerifyReturnsParseableJSONOnExecutionFailure() throws {
+    @Test func verifyReturnsParseableJSONOnExecutionFailure() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -50,16 +51,16 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             environment: ["PATH": "/nonexistent"],
             timeoutSeconds: 20
         )
-        XCTAssertEqual(result.status, 4)
+        #expect(result.status == 4)
 
         let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(result.stdout.utf8))
-        XCTAssertEqual(payload.command, "verify")
-        XCTAssertEqual(payload.status, "failed")
-        XCTAssertEqual(payload.exitCode, 4)
-        XCTAssertTrue(payload.summary.contains("verify failed at"))
+        #expect(payload.command == "verify")
+        #expect(payload.status == "failed")
+        #expect(payload.exitCode == 4)
+        #expect(payload.summary.contains("verify failed at"))
     }
 
-    func testReleaseInitReturnsParseableJSONOnInvalidEnvironmentFormat() throws {
+    @Test func releaseInitReturnsParseableJSONOnInvalidEnvironmentFormat() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -90,7 +91,7 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(planResult.status, 0)
+        #expect(planResult.status == 0)
 
         let releaseInitResult = try runBootstrap(
             args: [
@@ -108,16 +109,16 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
                 "MATCH_PASSWORD": "secret"
             ]
         )
-        XCTAssertEqual(releaseInitResult.status, 5)
+        #expect(releaseInitResult.status == 5)
 
         let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(releaseInitResult.stdout.utf8))
-        XCTAssertEqual(payload.command, "release-init")
-        XCTAssertEqual(payload.status, "failed")
-        XCTAssertEqual(payload.exitCode, 5)
-        XCTAssertTrue(payload.summary.contains("invalid environment format"))
+        #expect(payload.command == "release-init")
+        #expect(payload.status == "failed")
+        #expect(payload.exitCode == 5)
+        #expect(payload.summary.contains("invalid environment format"))
     }
 
-    func testReleaseInitReadsSigningEnvironmentFromDefaultFile() throws {
+    @Test func releaseInitReadsSigningEnvironmentFromDefaultFile() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -160,7 +161,7 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(planResult.status, 0)
+        #expect(planResult.status == 0)
 
         let releaseInitResult = try runBootstrap(
             args: [
@@ -179,10 +180,10 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
                 "MATCH_PASSWORD": ""
             ]
         )
-        XCTAssertEqual(releaseInitResult.status, 0)
+        #expect(releaseInitResult.status == 0)
     }
 
-    func testPlanSupportsPlanDirectoryInputWithMetadataOverrides() throws {
+    @Test func planSupportsPlanDirectoryInputWithMetadataOverrides() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -253,17 +254,17 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(planResult.status, 0)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: blueprint.path(percentEncoded: false)))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appending(path: "profile.yaml").path(percentEncoded: false)))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appending(path: "prd.md").path(percentEncoded: false)))
+        #expect(planResult.status == 0)
+        #expect(FileManager.default.fileExists(atPath: blueprint.path(percentEncoded: false)))
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "profile.yaml").path(percentEncoded: false)))
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "prd.md").path(percentEncoded: false)))
 
         let blueprintText = try String(contentsOf: blueprint, encoding: .utf8)
-        XCTAssertTrue(blueprintText.contains("REQ-001"))
-        XCTAssertTrue(blueprintText.contains("SCR_WEEKLY_REVIEW"))
-        XCTAssertTrue(blueprintText.contains("- DraftItem"))
-        XCTAssertTrue(blueprintText.contains("- FocusSession"))
-        XCTAssertTrue(blueprintText.contains("- SpeechCaptureSession"))
+        #expect(blueprintText.contains("REQ-001"))
+        #expect(blueprintText.contains("SCR_WEEKLY_REVIEW"))
+        #expect(blueprintText.contains("- DraftItem"))
+        #expect(blueprintText.contains("- FocusSession"))
+        #expect(blueprintText.contains("- SpeechCaptureSession"))
 
         let applyResult = try runBootstrap(
             args: [
@@ -275,7 +276,7 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(applyResult.status, 0)
+        #expect(applyResult.status == 0)
 
         let releaseInitResult = try runBootstrap(
             args: [
@@ -293,10 +294,10 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
                 "MATCH_PASSWORD": "secret"
             ]
         )
-        XCTAssertEqual(releaseInitResult.status, 0)
+        #expect(releaseInitResult.status == 0)
     }
 
-    func testPlanApplyAndReleaseInitRunInTemporaryWorkspace() throws {
+    @Test func planApplyAndReleaseInitRunInTemporaryWorkspace() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -357,11 +358,11 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(planResult.status, 0)
+        #expect(planResult.status == 0)
         let planPayload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(planResult.stdout.utf8))
-        XCTAssertEqual(planPayload.command, "plan")
-        XCTAssertEqual(planPayload.status, "success")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: blueprint.path(percentEncoded: false)))
+        #expect(planPayload.command == "plan")
+        #expect(planPayload.status == "success")
+        #expect(FileManager.default.fileExists(atPath: blueprint.path(percentEncoded: false)))
 
         let applyResult = try runBootstrap(
             args: [
@@ -374,11 +375,11 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(applyResult.status, 0)
+        #expect(applyResult.status == 0)
         let applyPayload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(applyResult.stdout.utf8))
-        XCTAssertEqual(applyPayload.command, "apply")
-        XCTAssertEqual(applyPayload.status, "success")
-        XCTAssertTrue(
+        #expect(applyPayload.command == "apply")
+        #expect(applyPayload.status == "success")
+        #expect(
             FileManager.default.fileExists(
                 atPath: root.appending(path: "Projects/App/Sources/Dependencies/AppComposition.swift").path(percentEncoded: false)
             )
@@ -396,10 +397,10 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(dryRunResult.status, 0)
+        #expect(dryRunResult.status == 0)
         let dryRunPayload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(dryRunResult.stdout.utf8))
-        XCTAssertEqual(dryRunPayload.command, "apply")
-        XCTAssertEqual(dryRunPayload.status, "success")
+        #expect(dryRunPayload.command == "apply")
+        #expect(dryRunPayload.status == "success")
 
         let releaseInitResult = try runBootstrap(
             args: [
@@ -418,18 +419,18 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
                 "MATCH_PASSWORD": "secret"
             ]
         )
-        XCTAssertEqual(releaseInitResult.status, 0)
+        #expect(releaseInitResult.status == 0)
         let releasePayload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(releaseInitResult.stdout.utf8))
-        XCTAssertEqual(releasePayload.command, "release-init")
-        XCTAssertEqual(releasePayload.status, "success")
-        XCTAssertTrue(
+        #expect(releasePayload.command == "release-init")
+        #expect(releasePayload.status == "success")
+        #expect(
             FileManager.default.fileExists(
                 atPath: root.appending(path: "fastlane/Fastfile").path(percentEncoded: false)
             )
         )
     }
 
-    func testDoctorJSONIncludesFindingsAndScope() throws {
+    @Test func doctorJSONIncludesFindingsAndScope() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -477,21 +478,21 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(result.status, 0)
+        #expect(result.status == 0)
 
         let payload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(result.stdout.utf8))
-        XCTAssertEqual(payload.command, "doctor")
-        XCTAssertEqual(payload.status, "success")
-        XCTAssertEqual(payload.scope, "core")
-        XCTAssertFalse(payload.findings.isEmpty)
+        #expect(payload.command == "doctor")
+        #expect(payload.status == "success")
+        #expect(payload.scope == "core")
+        #expect(!payload.findings.isEmpty)
 
-        let fastlane = try XCTUnwrap(payload.findings.first(where: { $0.tool == "fastlane" }))
-        XCTAssertEqual(fastlane.severity, "recommended")
-        XCTAssertFalse(fastlane.action.isEmpty)
-        XCTAssertFalse(fastlane.installCommands.isEmpty)
+        let fastlane = try #require(payload.findings.first(where: { $0.tool == "fastlane" }))
+        #expect(fastlane.severity == "recommended")
+        #expect(!fastlane.action.isEmpty)
+        #expect(!fastlane.installCommands.isEmpty)
     }
 
-    func testDoctorInitLockCreatesDefaultPolicy() throws {
+    @Test func doctorInitLockCreatesDefaultPolicy() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -504,17 +505,17 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(result.status, 0)
+        #expect(result.status == 0)
 
         let generated = root.appending(path: "config/toolchain.lock.yaml")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: generated.path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: generated.path(percentEncoded: false)))
 
         let content = try String(contentsOf: generated, encoding: .utf8)
-        XCTAssertTrue(content.contains("schemaVersion: 2"))
-        XCTAssertTrue(content.contains("requiredFor"))
+        #expect(content.contains("schemaVersion: 2"))
+        #expect(content.contains("requiredFor"))
     }
 
-    func testDoctorIgnoresDeprecatedLockPathAndInitializesConfigLock() throws {
+    @Test func doctorIgnoresDeprecatedLockPathAndInitializesConfigLock() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -561,16 +562,16 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertNotEqual(result.status, 2)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: preferredPath.path(percentEncoded: false)))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: deprecatedPath.path(percentEncoded: false)))
+        #expect(result.status != 2)
+        #expect(FileManager.default.fileExists(atPath: preferredPath.path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: deprecatedPath.path(percentEncoded: false)))
 
         let preferredContent = try String(contentsOf: preferredPath, encoding: .utf8)
-        XCTAssertTrue(preferredContent.contains("schemaVersion: 2"))
-        XCTAssertFalse(preferredContent.contains("value: \"0.0.0\""))
+        #expect(preferredContent.contains("schemaVersion: 2"))
+        #expect(!preferredContent.contains("value: \"0.0.0\""))
     }
 
-    func testDoctorAutoInstallReportsSkippedWhenInstallerIsUnavailable() throws {
+    @Test func doctorAutoInstallReportsSkippedWhenInstallerIsUnavailable() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -616,15 +617,15 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(result.status, 6)
+        #expect(result.status == 6)
 
         let payload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(result.stdout.utf8))
-        XCTAssertEqual(payload.command, "doctor")
-        XCTAssertEqual(payload.status, "failed")
-        XCTAssertTrue(payload.installAttempts.contains(where: { $0.tool == "tuist" && $0.status == "skipped-no-runner" }))
+        #expect(payload.command == "doctor")
+        #expect(payload.status == "failed")
+        #expect(payload.installAttempts.contains(where: { $0.tool == "tuist" && $0.status == "skipped-no-runner" }))
     }
 
-    func testDoctorDefaultsToReleaseInitAndCreatesSigningEnvTemplate() throws {
+    @Test func doctorDefaultsToReleaseInitAndCreatesSigningEnvTemplate() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -645,19 +646,19 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(result.status, 6)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: signingPath.path(percentEncoded: false)))
+        #expect(result.status == 6)
+        #expect(FileManager.default.fileExists(atPath: signingPath.path(percentEncoded: false)))
         let permissions = try FileManager.default
             .attributesOfItem(atPath: signingPath.path(percentEncoded: false))[.posixPermissions] as? NSNumber
-        XCTAssertEqual(permissions?.intValue, Int(0o600))
+        #expect(permissions?.intValue == Int(0o600))
 
         let payload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(result.stdout.utf8))
-        XCTAssertEqual(payload.scope, "release-init")
-        XCTAssertTrue(payload.findings.contains(where: { $0.tool == "signing-env" && $0.severity == "required" }))
-        XCTAssertTrue(payload.artifacts.allSatisfy { $0.contains("/.bos/artifacts/doctor/") })
+        #expect(payload.scope == "release-init")
+        #expect(payload.findings.contains(where: { $0.tool == "signing-env" && $0.severity == "required" }))
+        #expect(payload.artifacts.allSatisfy { $0.contains("/.bos/artifacts/doctor/") })
     }
 
-    func testDoctorUsesProjectScopedArtifactDirectory() throws {
+    @Test func doctorUsesProjectScopedArtifactDirectory() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -670,15 +671,15 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(result.status, 0)
+        #expect(result.status == 0)
 
         let payload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(result.stdout.utf8))
-        XCTAssertFalse(payload.artifacts.isEmpty)
+        #expect(!payload.artifacts.isEmpty)
         let expectedPrefix = root
             .standardizedFileURL
             .appending(path: ".bos/artifacts/doctor")
             .path(percentEncoded: false)
-        XCTAssertTrue(
+        #expect(
             payload.artifacts.allSatisfy { artifact in
                 URL(fileURLWithPath: artifact).standardizedFileURL.path(percentEncoded: false)
                     .hasPrefix(expectedPrefix + "/")
@@ -686,7 +687,7 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
         )
     }
 
-    func testDoctorReportsDoctorFailureCodeOnInvalidSigningEnvironmentSyntax() throws {
+    @Test func doctorReportsDoctorFailureCodeOnInvalidSigningEnvironmentSyntax() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -707,16 +708,16 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(result.status, 6)
+        #expect(result.status == 6)
 
         let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(result.stdout.utf8))
-        XCTAssertEqual(payload.command, "doctor")
-        XCTAssertEqual(payload.exitCode, 6)
-        XCTAssertTrue(payload.summary.contains("invalid signing env in"))
-        XCTAssertTrue(payload.summary.contains("line 2"))
+        #expect(payload.command == "doctor")
+        #expect(payload.exitCode == 6)
+        #expect(payload.summary.contains("invalid signing env in"))
+        #expect(payload.summary.contains("line 2"))
     }
 
-    func testDoctorReportsAccurateLineNumberWithCommentsAndBlankLines() throws {
+    @Test func doctorReportsAccurateLineNumberWithCommentsAndBlankLines() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -740,15 +741,15 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(result.status, 6)
+        #expect(result.status == 6)
 
         let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(result.stdout.utf8))
-        XCTAssertEqual(payload.command, "doctor")
-        XCTAssertEqual(payload.exitCode, 6)
-        XCTAssertTrue(payload.summary.contains("line 5"))
+        #expect(payload.command == "doctor")
+        #expect(payload.exitCode == 6)
+        #expect(payload.summary.contains("line 5"))
     }
 
-    func testDoctorRetainsArtifactsAcrossRuns() throws {
+    @Test func doctorRetainsArtifactsAcrossRuns() async throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -761,10 +762,10 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(first.status, 0)
+        #expect(first.status == 0)
         let firstPayload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(first.stdout.utf8))
 
-        Thread.sleep(forTimeInterval: 1.1)
+        try await Task.sleep(for: .seconds(1.1))
 
         let second = try runBootstrap(
             args: [
@@ -775,15 +776,15 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(second.status, 0)
+        #expect(second.status == 0)
         let secondPayload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(second.stdout.utf8))
 
         for artifact in firstPayload.artifacts + secondPayload.artifacts {
-            XCTAssertTrue(FileManager.default.fileExists(atPath: artifact))
+            #expect(FileManager.default.fileExists(atPath: artifact))
         }
     }
 
-    func testReleaseInitReportsReleaseFailureCodeOnInvalidSigningEnvironmentSyntax() throws {
+    @Test func releaseInitReportsReleaseFailureCodeOnInvalidSigningEnvironmentSyntax() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -814,7 +815,7 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(planResult.status, 0)
+        #expect(planResult.status == 0)
 
         let signingPath = root.appending(path: ".bos/config/signing.env")
         try FileManager.default.createDirectory(at: signingPath.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -834,13 +835,13 @@ final class CLIJsonOutputIntegrationTests: XCTestCase {
             ],
             cwd: root
         )
-        XCTAssertEqual(result.status, 5)
+        #expect(result.status == 5)
 
         let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(result.stdout.utf8))
-        XCTAssertEqual(payload.command, "release-init")
-        XCTAssertEqual(payload.exitCode, 5)
-        XCTAssertTrue(payload.summary.contains("invalid signing env in"))
-        XCTAssertTrue(payload.summary.contains("line 2"))
+        #expect(payload.command == "release-init")
+        #expect(payload.exitCode == 5)
+        #expect(payload.summary.contains("invalid signing env in"))
+        #expect(payload.summary.contains("line 2"))
     }
 }
 
@@ -937,7 +938,7 @@ private extension CLIJsonOutputIntegrationTests {
     func waitForExit(_ process: Process, timeoutSeconds: TimeInterval) -> Bool {
         let group = DispatchGroup()
         group.enter()
-        DispatchQueue.global(qos: .utility).async {
+        Thread.detachNewThread {
             process.waitUntilExit()
             group.leave()
         }
@@ -970,8 +971,24 @@ private extension CLIJsonOutputIntegrationTests {
 
     func productsDirectory() -> URL {
         #if os(macOS)
+        // XCTest: test bundle is a .xctest directory next to the products
         for bundle in Bundle.allBundles where bundle.bundlePath.hasSuffix(".xctest") {
             return bundle.bundleURL.deletingLastPathComponent()
+        }
+        // Swift Testing (SPM): search .build tree for the bos binary
+        let buildRoot = repositoryRoot().appending(path: ".build")
+        let fm = FileManager.default
+        if let entries = try? fm.contentsOfDirectory(at: buildRoot, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) {
+            for entry in entries {
+                let candidate = entry.appending(path: "debug/bos")
+                if fm.isExecutableFile(atPath: candidate.path(percentEncoded: false)) {
+                    return candidate.deletingLastPathComponent()
+                }
+            }
+        }
+        let directCandidate = buildRoot.appending(path: "debug/bos")
+        if fm.isExecutableFile(atPath: directCandidate.path(percentEncoded: false)) {
+            return directCandidate.deletingLastPathComponent()
         }
         #endif
         return Bundle.main.bundleURL

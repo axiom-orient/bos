@@ -1,9 +1,10 @@
 import Foundation
-import XCTest
+import Testing
 @testable import BosCore
 
-final class RuntimeArtifactsTests: XCTestCase {
-    func testMakeDirectoryPrunesOldArtifactsAboveRetentionLimit() throws {
+@Suite
+struct RuntimeArtifactsTests {
+    @Test func makeDirectoryPrunesOldArtifactsAboveRetentionLimit() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -28,11 +29,11 @@ final class RuntimeArtifactsTests: XCTestCase {
             options: [.skipsHiddenFiles]
         )
         let names = Set(remaining.map(\.lastPathComponent))
-        XCTAssertEqual(remaining.count, 120)
-        XCTAssertTrue(names.contains("doctor-129.json"))
-        XCTAssertTrue(names.contains("doctor-010.json"))
-        XCTAssertFalse(names.contains("doctor-009.json"))
-        XCTAssertFalse(names.contains("doctor-000.json"))
+        #expect(remaining.count == 120)
+        #expect(names.contains("doctor-129.json"))
+        #expect(names.contains("doctor-010.json"))
+        #expect(!names.contains("doctor-009.json"))
+        #expect(!names.contains("doctor-000.json"))
     }
 }
 

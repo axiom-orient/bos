@@ -1,10 +1,12 @@
-import XCTest
+import Foundation
+import Testing
 @testable import BosCore
 
-final class SchemaValidationTests: XCTestCase {
+@Suite
+struct SchemaValidationTests {
     private let decoder = JSONDecoder()
 
-    func testBlueprintV1DecodesValidPayload() throws {
+    @Test func blueprintV1DecodesValidPayload() throws {
         let json = """
         {
           "schemaVersion": 1,
@@ -36,11 +38,11 @@ final class SchemaValidationTests: XCTestCase {
         }
         """
         let model = try decoder.decode(BlueprintV1.self, from: Data(json.utf8))
-        XCTAssertEqual(model.schemaVersion, 1)
-        XCTAssertEqual(model.release.fastlane.appleTeamId, "A1B2C3D4E5")
+        #expect(model.schemaVersion == 1)
+        #expect(model.release.fastlane.appleTeamId == "A1B2C3D4E5")
     }
 
-    func testBlueprintV1FailsOnUnknownTopLevelKey() {
+    @Test func blueprintV1FailsOnUnknownTopLevelKey() throws {
         let json = """
         {
           "schemaVersion": 1,
@@ -73,16 +75,20 @@ final class SchemaValidationTests: XCTestCase {
         }
         """
 
-        XCTAssertThrowsError(try decoder.decode(BlueprintV1.self, from: Data(json.utf8))) { error in
-            guard case SchemaValidationError.unknownKeys(let schema, let keys) = error else {
-                return XCTFail("unexpected error: \(error)")
+        do {
+            _ = try decoder.decode(BlueprintV1.self, from: Data(json.utf8))
+            Issue.record("expected SchemaValidationError.unknownKeys to be thrown")
+        } catch let error as SchemaValidationError {
+            if case .unknownKeys(let schema, let keys) = error {
+                #expect(schema == "BlueprintV1")
+                #expect(keys == ["unexpected"])
+            } else {
+                Issue.record("unexpected SchemaValidationError: \(error)")
             }
-            XCTAssertEqual(schema, "BlueprintV1")
-            XCTAssertEqual(keys, ["unexpected"])
         }
     }
 
-    func testProfileV1DecodesValidPayload() throws {
+    @Test func profileV1DecodesValidPayload() throws {
         let json = """
         {
           "schemaVersion": 1,
@@ -105,11 +111,11 @@ final class SchemaValidationTests: XCTestCase {
         }
         """
         let model = try decoder.decode(ProfileV1.self, from: Data(json.utf8))
-        XCTAssertEqual(model.name, "daycraft")
-        XCTAssertEqual(model.defaults.appTargets.controlsExtension, true)
+        #expect(model.name == "daycraft")
+        #expect(model.defaults.appTargets.controlsExtension == true)
     }
 
-    func testProfileV1FailsOnUnknownNestedKey() {
+    @Test func profileV1FailsOnUnknownNestedKey() throws {
         let json = """
         {
           "schemaVersion": 1,
@@ -133,16 +139,20 @@ final class SchemaValidationTests: XCTestCase {
         }
         """
 
-        XCTAssertThrowsError(try decoder.decode(ProfileV1.self, from: Data(json.utf8))) { error in
-            guard case SchemaValidationError.unknownKeys(let schema, let keys) = error else {
-                return XCTFail("unexpected error: \(error)")
+        do {
+            _ = try decoder.decode(ProfileV1.self, from: Data(json.utf8))
+            Issue.record("expected SchemaValidationError.unknownKeys to be thrown")
+        } catch let error as SchemaValidationError {
+            if case .unknownKeys(let schema, let keys) = error {
+                #expect(schema == "ProfileV1.defaults.appTargets")
+                #expect(keys == ["extra"])
+            } else {
+                Issue.record("unexpected SchemaValidationError: \(error)")
             }
-            XCTAssertEqual(schema, "ProfileV1.defaults.appTargets")
-            XCTAssertEqual(keys, ["extra"])
         }
     }
 
-    func testToolchainLockV1DecodesValidPayload() throws {
+    @Test func toolchainLockV1DecodesValidPayload() throws {
         let json = """
         {
           "schemaVersion": 1,
@@ -156,10 +166,10 @@ final class SchemaValidationTests: XCTestCase {
         }
         """
         let model = try decoder.decode(ToolchainLockV1.self, from: Data(json.utf8))
-        XCTAssertEqual(model.tuist, "4.153.1")
+        #expect(model.tuist == "4.153.1")
     }
 
-    func testToolchainLockV1FailsOnUnknownNestedKey() {
+    @Test func toolchainLockV1FailsOnUnknownNestedKey() throws {
         let json = """
         {
           "schemaVersion": 1,
@@ -174,16 +184,20 @@ final class SchemaValidationTests: XCTestCase {
         }
         """
 
-        XCTAssertThrowsError(try decoder.decode(ToolchainLockV1.self, from: Data(json.utf8))) { error in
-            guard case SchemaValidationError.unknownKeys(let schema, let keys) = error else {
-                return XCTFail("unexpected error: \(error)")
+        do {
+            _ = try decoder.decode(ToolchainLockV1.self, from: Data(json.utf8))
+            Issue.record("expected SchemaValidationError.unknownKeys to be thrown")
+        } catch let error as SchemaValidationError {
+            if case .unknownKeys(let schema, let keys) = error {
+                #expect(schema == "ToolchainLockV1.tmaPluginRef")
+                #expect(keys == ["revision"])
+            } else {
+                Issue.record("unexpected SchemaValidationError: \(error)")
             }
-            XCTAssertEqual(schema, "ToolchainLockV1.tmaPluginRef")
-            XCTAssertEqual(keys, ["revision"])
         }
     }
 
-    func testToolchainLockV2DecodesValidPayload() throws {
+    @Test func toolchainLockV2DecodesValidPayload() throws {
         let json = """
         {
           "schemaVersion": 2,
@@ -211,11 +225,11 @@ final class SchemaValidationTests: XCTestCase {
         }
         """
         let model = try decoder.decode(ToolchainLockV2.self, from: Data(json.utf8))
-        XCTAssertEqual(model.schemaVersion, 2)
-        XCTAssertEqual(model.tools.tuist.requiredFor, ["apply", "verify"])
+        #expect(model.schemaVersion == 2)
+        #expect(model.tools.tuist.requiredFor == ["apply", "verify"])
     }
 
-    func testToolchainLockV2FailsOnUnknownToolKey() {
+    @Test func toolchainLockV2FailsOnUnknownToolKey() throws {
         let json = """
         {
           "schemaVersion": 2,
@@ -248,16 +262,20 @@ final class SchemaValidationTests: XCTestCase {
         }
         """
 
-        XCTAssertThrowsError(try decoder.decode(ToolchainLockV2.self, from: Data(json.utf8))) { error in
-            guard case SchemaValidationError.unknownKeys(let schema, let keys) = error else {
-                return XCTFail("unexpected error: \(error)")
+        do {
+            _ = try decoder.decode(ToolchainLockV2.self, from: Data(json.utf8))
+            Issue.record("expected SchemaValidationError.unknownKeys to be thrown")
+        } catch let error as SchemaValidationError {
+            if case .unknownKeys(let schema, let keys) = error {
+                #expect(schema == "ToolchainLockV2.tools")
+                #expect(keys == ["ruby"])
+            } else {
+                Issue.record("unexpected SchemaValidationError: \(error)")
             }
-            XCTAssertEqual(schema, "ToolchainLockV2.tools")
-            XCTAssertEqual(keys, ["ruby"])
         }
     }
 
-    func testBootstrapLockV1DecodesValidPayload() throws {
+    @Test func bootstrapLockV1DecodesValidPayload() throws {
         let json = """
         {
           "appliedAt": "2026-03-04T10:00:00Z",
@@ -275,10 +293,10 @@ final class SchemaValidationTests: XCTestCase {
         }
         """
         let model = try decoder.decode(BootstrapLockV1.self, from: Data(json.utf8))
-        XCTAssertEqual(model.verifySummary.status, "passed")
+        #expect(model.verifySummary.status == "passed")
     }
 
-    func testBootstrapLockV1FailsOnUnknownTopLevelKey() {
+    @Test func bootstrapLockV1FailsOnUnknownTopLevelKey() throws {
         let json = """
         {
           "appliedAt": "2026-03-04T10:00:00Z",
@@ -291,12 +309,16 @@ final class SchemaValidationTests: XCTestCase {
         }
         """
 
-        XCTAssertThrowsError(try decoder.decode(BootstrapLockV1.self, from: Data(json.utf8))) { error in
-            guard case SchemaValidationError.unknownKeys(let schema, let keys) = error else {
-                return XCTFail("unexpected error: \(error)")
+        do {
+            _ = try decoder.decode(BootstrapLockV1.self, from: Data(json.utf8))
+            Issue.record("expected SchemaValidationError.unknownKeys to be thrown")
+        } catch let error as SchemaValidationError {
+            if case .unknownKeys(let schema, let keys) = error {
+                #expect(schema == "BootstrapLockV1")
+                #expect(keys == ["extra"])
+            } else {
+                Issue.record("unexpected SchemaValidationError: \(error)")
             }
-            XCTAssertEqual(schema, "BootstrapLockV1")
-            XCTAssertEqual(keys, ["extra"])
         }
     }
 }

@@ -1,11 +1,12 @@
 import Foundation
-import XCTest
+import Testing
 @testable import BosCore
 
-final class DoctorEngineIntegrationTests: XCTestCase {
+@Suite
+struct DoctorEngineIntegrationTests {
     private let engine = DoctorEngine()
 
-    func testLegacyV1ConvertsToPolicyV2() throws {
+    @Test func legacyV1ConvertsToPolicyV2() throws {
         let v1 = try ToolchainLockV1(
             schemaVersion: 1,
             swift: "6.0",
@@ -14,13 +15,13 @@ final class DoctorEngineIntegrationTests: XCTestCase {
             tmaPluginRef: .init(type: "git-sha", value: "abc")
         )
         let lock = try v1.asToolchainLockV2()
-        XCTAssertEqual(lock.schemaVersion, 2)
-        XCTAssertFalse(lock.tools.swift.requiredFor.isEmpty)
-        XCTAssertFalse(lock.tools.tuist.requiredFor.isEmpty)
-        XCTAssertFalse(lock.tools.fastlane.requiredFor.isEmpty)
+        #expect(lock.schemaVersion == 2)
+        #expect(!lock.tools.swift.requiredFor.isEmpty)
+        #expect(!lock.tools.tuist.requiredFor.isEmpty)
+        #expect(!lock.tools.fastlane.requiredFor.isEmpty)
     }
 
-    func testDoctorCoreScopeDoesNotBlockMissingFastlane() throws {
+    @Test func doctorCoreScopeDoesNotBlockMissingFastlane() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -49,15 +50,15 @@ final class DoctorEngineIntegrationTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(result.status, "success")
-        XCTAssertEqual(result.exitCode, 0)
+        #expect(result.status == "success")
+        #expect(result.exitCode == 0)
 
-        let fastlane = try XCTUnwrap(result.findings.first(where: { $0.tool == "fastlane" }))
-        XCTAssertEqual(fastlane.severity, .recommended)
-        XCTAssertEqual(fastlane.status, .missing)
+        let fastlane = try #require(result.findings.first(where: { $0.tool == "fastlane" }))
+        #expect(fastlane.severity == .recommended)
+        #expect(fastlane.status == .missing)
     }
 
-    func testDoctorFailsWhenRequiredToolMissingForScope() throws {
+    @Test func doctorFailsWhenRequiredToolMissingForScope() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -86,15 +87,15 @@ final class DoctorEngineIntegrationTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(result.status, "failed")
-        XCTAssertEqual(result.exitCode, 6)
+        #expect(result.status == "failed")
+        #expect(result.exitCode == 6)
 
-        let tuist = try XCTUnwrap(result.findings.first(where: { $0.tool == "tuist" }))
-        XCTAssertEqual(tuist.severity, .required)
-        XCTAssertEqual(tuist.status, .missing)
+        let tuist = try #require(result.findings.first(where: { $0.tool == "tuist" }))
+        #expect(tuist.severity == .required)
+        #expect(tuist.status == .missing)
     }
 
-    func testDoctorReleaseInitScopeFailsOnInvalidSigningEnvironment() throws {
+    @Test func doctorReleaseInitScopeFailsOnInvalidSigningEnvironment() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -130,13 +131,13 @@ final class DoctorEngineIntegrationTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(result.status, "failed")
-        XCTAssertEqual(result.exitCode, 6)
+        #expect(result.status == "failed")
+        #expect(result.exitCode == 6)
 
-        let signing = try XCTUnwrap(result.findings.first(where: { $0.tool == "signing-env" }))
-        XCTAssertEqual(signing.severity, .required)
-        XCTAssertEqual(signing.status, .incompatible)
-        XCTAssertTrue(signing.actualVersion.contains("invalid="))
+        let signing = try #require(result.findings.first(where: { $0.tool == "signing-env" }))
+        #expect(signing.severity == .required)
+        #expect(signing.status == .incompatible)
+        #expect(signing.actualVersion.contains("invalid="))
     }
 }
 
