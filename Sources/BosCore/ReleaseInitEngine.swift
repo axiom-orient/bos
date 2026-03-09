@@ -2,14 +2,14 @@ import Foundation
 
 public struct ReleaseInitRequest: Sendable {
     public let projectRoot: URL
-    public let blueprint: BlueprintV1
-    public let profile: ProfileV1
+    public let blueprint: Blueprint
+    public let profile: Profile
     public let environment: [String: String]
 
     public init(
         projectRoot: URL,
-        blueprint: BlueprintV1,
-        profile: ProfileV1,
+        blueprint: Blueprint,
+        profile: Profile,
         environment: [String: String]
     ) {
         self.projectRoot = projectRoot
@@ -36,7 +36,11 @@ public struct ReleaseInitEngine: Sendable {
 
     public func releaseInit(request: ReleaseInitRequest) throws -> ReleaseInitResult {
         let root = request.projectRoot.standardizedFileURL
-        let envCheck = SigningEnvironmentPolicy.validate(environment: request.environment)
+        let effectiveEnvironment = ReleaseEnvironment.effectiveEnvironment(
+            profile: request.profile,
+            environment: request.environment
+        )
+        let envCheck = SigningEnvironmentPolicy.validate(environment: effectiveEnvironment)
         if !envCheck.missingKeys.isEmpty {
             BosStateStore.updateSummary(
                 projectRoot: root,
@@ -61,7 +65,11 @@ public struct ReleaseInitEngine: Sendable {
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
 
         let fastlaneDir = root.appending(path: "fastlane")
-        let metadataDir = fastlaneDir.appending(path: "metadata/en-US")
+        let primaryLanguage = request.blueprint.release.fastlane.primaryLanguage ?? request.profile.configuredPrimaryLanguage
+        let metadataDir = fastlaneDir.appending(path: "metadata/\(primaryLanguage)")
+        let matchGitURL = request.profile.configuredMatchGitURL
+            ?? effectiveEnvironment["MATCH_GIT_URL"]
+            ?? ""
         try fm.createDirectory(at: metadataDir, withIntermediateDirectories: true)
 
         let fastfilePath = fastlaneDir.appending(path: "Fastfile")
@@ -77,7 +85,7 @@ public struct ReleaseInitEngine: Sendable {
                 appleTeamId: request.blueprint.release.fastlane.appleTeamId
             )
         )
-        try RuntimeSupport.writeFile(to: matchfilePath, content: matchfileTemplate())
+        try RuntimeSupport.writeFile(to: matchfilePath, content: matchfileTemplate(gitURL: matchGitURL))
         try RuntimeSupport.writeFile(to: metadataNotesPath, content: metadataTemplate(projectName: request.blueprint.project.name))
 
         let lanes: [String]
@@ -127,7 +135,7 @@ public struct ReleaseInitEngine: Sendable {
 
 extension ReleaseInitEngine {
     private enum Constant {
-        static let defaultLanes = ["certs", "build", "beta", "release", "release_metadata"]
+        static let defaultLanes = ["auth_ping", "certs_readonly", "certs", "build", "beta", "release", "submit", "release_metadata"]
     }
 
     private struct ArtifactPayload: Codable {
@@ -161,6 +169,7 @@ extension ReleaseInitEngine {
         """
         default_platform(:ios)
         require 'base64'
+        require 'fileutils'
 
         platform :ios do
           private_lane :asc_api_key do
@@ -172,12 +181,43 @@ extension ReleaseInitEngine {
             )
           end
 
+          lane :auth_ping do
+            api_key = asc_api_key
+            token = Spaceship::ConnectAPI::Token.create(api_key)
+            Spaceship::ConnectAPI.token = token
+            apps = Spaceship::ConnectAPI::App.all(limit: 1)
+            UI.message("App Store Connect auth ping succeeded (apps=#{apps.count})")
+          end
+
+          private_lane :build_output_directory do
+            value = ENV["BOS_IPA_OUTPUT_DIR"].to_s.strip
+            value.empty? ? "./.bos/build" : value
+          end
+
+          private_lane :build_output_name do
+            value = ENV["BOS_IPA_OUTPUT_NAME"].to_s.strip
+            value.empty? ? "app.ipa" : value
+          end
+
+          lane :certs_readonly do
+            sync_code_signing(type: "appstore", readonly: true, api_key: asc_api_key)
+          end
+
           lane :certs do
             sync_code_signing(type: "appstore", readonly: false, api_key: asc_api_key)
           end
 
           lane :build do
-            build_app
+            output_directory = build_output_directory
+            output_name = build_output_name
+            FileUtils.mkdir_p(output_directory)
+            build_app(
+              workspace: ENV["BOS_WORKSPACE_PATH"],
+              scheme: ENV["BOS_SCHEME"],
+              output_directory: output_directory,
+              output_name: output_name
+            )
+            UI.message("BOS_IPA_PATH=#{File.expand_path(File.join(output_directory, output_name))}")
           end
 
           lane :beta do
@@ -187,11 +227,17 @@ extension ReleaseInitEngine {
 
           lane :release do
             api_key = asc_api_key
-            deliver(api_key: api_key, submit_for_review: false)
+            deliver(api_key: api_key, ipa: ENV["IPA_PATH"], submit_for_review: false)
+          end
+
+          lane :submit do
+            api_key = asc_api_key
+            deliver(api_key: api_key, ipa: ENV["IPA_PATH"], submit_for_review: true)
           end
 
           lane :release_metadata do
-            deliver(skip_binary_upload: true, skip_screenshots: true, submit_for_review: false)
+            api_key = asc_api_key
+            deliver(api_key: api_key, skip_binary_upload: true, skip_screenshots: true, submit_for_review: false)
           end
         end
         """
@@ -204,9 +250,9 @@ extension ReleaseInitEngine {
         """
     }
 
-    private func matchfileTemplate() -> String {
+    private func matchfileTemplate(gitURL: String) -> String {
         """
-        git_url(ENV["MATCH_GIT_URL"])
+        git_url("\(gitURL)")
         storage_mode("git")
         type("appstore")
         readonly(false)

@@ -181,21 +181,131 @@ struct PlanEngineIntegrationTests {
             ["Item", "DraftItem", "FocusSession", "ReflectionRecord", "SpeechCaptureSession"]
         )
     }
+
+    @Test func generateBlueprintUsesProfileMetadataWhenPRDOmitsReleaseFields() throws {
+        let prd = """
+        Project: Daycraft
+
+        Requirements
+        - REQ-001 홈 화면 진입
+
+        Screens
+        - SCR_TODAY_HOME
+
+        Entities
+        - Entity: User
+        """
+
+        let blueprint = try engine.generateBlueprint(
+            prd: prd,
+            profile: try makeProfile(
+                identity: .init(
+                    companyName: "Axiom Orient",
+                    appName: "Daycraft",
+                    appIdentifier: "com.axiomorient.daycraft",
+                    appleTeamId: "A1B2C3D4E5"
+                ),
+                release: .init(primaryLanguage: "ko-KR")
+            )
+        )
+
+        #expect(blueprint.release.fastlane.appIdentifier == "com.axiomorient.daycraft")
+        #expect(blueprint.release.fastlane.appleTeamId == "A1B2C3D4E5")
+        #expect(blueprint.release.fastlane.appName == "Daycraft")
+        #expect(blueprint.release.fastlane.primaryLanguage == "ko-KR")
+        #expect(blueprint.release.fastlane.companyName == "Axiom Orient")
+        #expect(blueprint.release.fastlane.sku == "axiom-orient.daycraft.04805b02")
+    }
+
+    @Test func generateBlueprintPrefersProfileMetadataOverPRDMarkers() throws {
+        let prd = """
+        Project: Daycraft
+        App Identifier: com.example.legacy
+        Apple Team ID: LEGACY1234
+        App Name: Legacy Name
+        Company Name: Legacy Co
+        Primary Language: en-US
+        SKU: legacy.sku
+
+        Requirements
+        - REQ-001 홈 화면 진입
+
+        Screens
+        - SCR_TODAY_HOME
+
+        Entities
+        - Entity: User
+        """
+
+        let blueprint = try engine.generateBlueprint(
+            prd: prd,
+            profile: try makeProfile(
+                identity: .init(
+                    companyName: "Axiom Orient",
+                    appName: "Daycraft",
+                    appIdentifier: "com.axiomorient.daycraft",
+                    appleTeamId: "A1B2C3D4E5"
+                ),
+                release: .init(primaryLanguage: "ko-KR", sku: "axiomorient.daycraft.custom")
+            )
+        )
+
+        #expect(blueprint.release.fastlane.appIdentifier == "com.axiomorient.daycraft")
+        #expect(blueprint.release.fastlane.appleTeamId == "A1B2C3D4E5")
+        #expect(blueprint.release.fastlane.appName == "Daycraft")
+        #expect(blueprint.release.fastlane.primaryLanguage == "ko-KR")
+        #expect(blueprint.release.fastlane.companyName == "Axiom Orient")
+        #expect(blueprint.release.fastlane.sku == "axiomorient.daycraft.custom")
+    }
+
+    @Test func generateBlueprintDerivesSKUFromBundlePrefixWhenCompanyNameMissing() throws {
+        let prd = """
+        Project: Daycraft
+
+        Requirements
+        - REQ-001 홈 화면 진입
+
+        Screens
+        - SCR_TODAY_HOME
+
+        Entities
+        - Entity: User
+        """
+
+        let blueprint = try engine.generateBlueprint(
+            prd: prd,
+            profile: try makeProfile(
+                identity: .init(
+                    appIdentifier: "com.axiomorient.daycraft",
+                    appleTeamId: "A1B2C3D4E5"
+                ),
+                release: .init(primaryLanguage: "en-US")
+            )
+        )
+
+        #expect(blueprint.release.fastlane.companyName == nil)
+        #expect(blueprint.release.fastlane.sku == "axiomorient.daycraft.04805b02")
+    }
 }
 
 private extension PlanEngineIntegrationTests {
-    func makeProfile() throws -> ProfileV1 {
-        let appTargets = ProfileV1.AppTargets(controlsExtension: true, uiTests: true)
-        let defaults = ProfileV1.Defaults(deploymentTarget: "18.0", appTargets: appTargets)
-        let pattern = ProfileV1.FeaturePattern(sourcesInterface: true, designFolder: true)
-        let rules = try ProfileV1.Rules(
+    func makeProfile(
+        identity: Profile.Identity = .init(),
+        release: Profile.ReleaseSettings = .init(primaryLanguage: "en-US")
+    ) throws -> Profile {
+        let appTargets = Profile.AppTargets(controlsExtension: true, uiTests: true)
+        let defaults = Profile.Defaults(deploymentTarget: "18.0", appTargets: appTargets)
+        let pattern = Profile.FeaturePattern(sourcesInterface: true, designFolder: true)
+        let rules = try Profile.Rules(
             testingStyle: "swift-testing",
             forbidPatterns: ["@unchecked Sendable", "Date()", "UUID()"]
         )
-        return try ProfileV1(
+        return try Profile(
             schemaVersion: 1,
             name: "daycraft",
             defaults: defaults,
+            identity: identity,
+            release: release,
             featurePattern: pattern,
             rules: rules
         )

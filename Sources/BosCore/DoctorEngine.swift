@@ -1,21 +1,30 @@
 import Foundation
 
-public struct DetectedToolchainV2: Sendable {
+public struct DetectedToolchain: Sendable {
     public let swift: String
     public let tuist: String
     public let fastlane: String
-    public let tmaPluginRef: ToolchainLockV2.TMAPluginRef
+    public let tmaPluginRef: ToolchainLock.TMAPluginRef
+    public let xcodeSelectPath: String
+    public let brewPath: String
+    public let gitVersion: String
 
     public init(
         swift: String,
         tuist: String,
         fastlane: String,
-        tmaPluginRef: ToolchainLockV2.TMAPluginRef
+        tmaPluginRef: ToolchainLock.TMAPluginRef,
+        xcodeSelectPath: String = "",
+        brewPath: String = "",
+        gitVersion: String = "not-found"
     ) {
         self.swift = swift
         self.tuist = tuist
         self.fastlane = fastlane
         self.tmaPluginRef = tmaPluginRef
+        self.xcodeSelectPath = xcodeSelectPath
+        self.brewPath = brewPath
+        self.gitVersion = gitVersion
     }
 }
 
@@ -64,15 +73,15 @@ public struct DoctorFinding: Codable, Equatable, Sendable {
 
 public struct DoctorRequest: Sendable {
     public let projectRoot: URL
-    public let lock: ToolchainLockV2
-    public let detected: DetectedToolchainV2
+    public let lock: ToolchainLock
+    public let detected: DetectedToolchain
     public let checkCommands: [String]
     public let environment: [String: String]
 
     public init(
         projectRoot: URL,
-        lock: ToolchainLockV2,
-        detected: DetectedToolchainV2,
+        lock: ToolchainLock,
+        detected: DetectedToolchain,
         checkCommands: [String],
         environment: [String: String] = [:]
     ) {
@@ -204,8 +213,8 @@ extension DoctorEngine {
     }
 
     private func buildFindings(
-        lock: ToolchainLockV2,
-        detected: DetectedToolchainV2,
+        lock: ToolchainLock,
+        detected: DetectedToolchain,
         checkCommands: [String],
         environment: [String: String]
     ) -> [DoctorFinding] {
@@ -248,7 +257,7 @@ extension DoctorEngine {
                 status: tmaStatus,
                 expectedRule: tmaExpected,
                 actualVersion: tmaActual,
-                requiredFor: ToolchainLockV2.allCommands,
+                requiredFor: ToolchainLock.allCommands,
                 action: tmaStatus == .installed
                     ? "No action required"
                     : "Set TMA_PLUGIN_REF_TYPE/TMA_PLUGIN_REF_VALUE to match lock value",
@@ -261,6 +270,16 @@ extension DoctorEngine {
                 environment: environment
             )
         )
+        if let xcodeSelectFinding = xcodeSelectFinding(
+            xcodeSelectPath: detected.xcodeSelectPath,
+            scope: scope
+        ) {
+            findings.append(xcodeSelectFinding)
+        }
+        findings.append(brewFinding(brewPath: detected.brewPath, scope: scope))
+        if let gitFinding = gitFinding(gitVersion: detected.gitVersion, scope: scope) {
+            findings.append(gitFinding)
+        }
 
         return findings
     }
@@ -269,9 +288,15 @@ extension DoctorEngine {
         scope: Set<String>,
         environment: [String: String]
     ) -> DoctorFinding {
-        let check = SigningEnvironmentPolicy.validate(environment: environment)
-        let isReleaseRequested = scope.contains(ToolchainLockV2.commandReleaseInit)
-        let severity: DoctorSeverity = isReleaseRequested ? .required : .recommended
+        let isAppRegisterRequested = scope.contains(ToolchainLock.commandAppRegister)
+        let isReleaseRequested =
+            scope.contains(ToolchainLock.commandReleaseInit)
+            || scope.contains(ToolchainLock.commandReleaseCheck)
+            || scope.contains(ToolchainLock.commandReleaseRun)
+        let severity: DoctorSeverity = (isAppRegisterRequested || isReleaseRequested) ? .required : .recommended
+        let check = isReleaseRequested
+            ? SigningEnvironmentPolicy.validate(environment: environment)
+            : SigningEnvironmentPolicy.validateAppStoreConnect(environment: environment)
 
         let status: DoctorFindingStatus
         if !check.missingKeys.isEmpty {
@@ -302,27 +327,99 @@ extension DoctorEngine {
         case .installed:
             action = "No action required"
         case .missing:
-            action = "Set required signing environment keys before release-init"
+            action = "Set required signing environment keys before app-register/release-init/release-check/release-run"
         case .incompatible:
-            action = "Fix signing environment formats before release-init"
+            action = "Fix signing environment formats before app-register/release-init/release-check/release-run"
         }
+
+        let expectedRule = isReleaseRequested
+            ? SigningEnvironmentPolicy.expectedRuleSummary
+            : SigningEnvironmentPolicy.appStoreConnectRuleSummary
+        let requiredFor = isReleaseRequested
+            ? [ToolchainLock.commandReleaseInit, ToolchainLock.commandReleaseCheck, ToolchainLock.commandReleaseRun]
+            : [ToolchainLock.commandAppRegister]
 
         return DoctorFinding(
             tool: "signing-env",
             severity: severity,
             status: status,
-            expectedRule: SigningEnvironmentPolicy.expectedRuleSummary,
+            expectedRule: expectedRule,
             actualVersion: actualVersion,
-            requiredFor: [ToolchainLockV2.commandReleaseInit],
+            requiredFor: requiredFor,
             action: action,
             installCommands: []
+        )
+    }
+
+    private func xcodeSelectFinding(
+        xcodeSelectPath: String,
+        scope: Set<String>
+    ) -> DoctorFinding? {
+        guard !xcodeSelectPath.isEmpty else { return nil }
+        let isXcodeRequired = scope.contains(ToolchainLock.commandApply)
+            || scope.contains(ToolchainLock.commandVerify)
+            || scope.contains(ToolchainLock.commandReleaseRun)
+        let isCommandLineTools = xcodeSelectPath.contains("CommandLineTools")
+        guard isXcodeRequired && isCommandLineTools else { return nil }
+        return DoctorFinding(
+            tool: "xcode-select",
+            severity: .required,
+            status: .incompatible,
+            expectedRule: "path:/Applications/Xcode.app/Contents/Developer",
+            actualVersion: xcodeSelectPath,
+            requiredFor: [ToolchainLock.commandApply, ToolchainLock.commandVerify, ToolchainLock.commandReleaseRun],
+            action: "Run: sudo xcode-select -s /Applications/Xcode.app",
+            installCommands: ["sudo xcode-select -s /Applications/Xcode.app"]
+        )
+    }
+
+    private func brewFinding(brewPath: String, scope: Set<String>) -> DoctorFinding {
+        let isApplyOrVerify = scope.contains(ToolchainLock.commandApply)
+            || scope.contains(ToolchainLock.commandVerify)
+            || scope.contains(ToolchainLock.commandReleaseRun)
+        let severity: DoctorSeverity = isApplyOrVerify ? .required : .recommended
+        let status: DoctorFindingStatus = brewPath.isEmpty ? .missing : .installed
+        let brewInstallScript = #"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#
+        return DoctorFinding(
+            tool: "brew",
+            severity: severity,
+            status: status,
+            expectedRule: "present",
+            actualVersion: brewPath.isEmpty ? "not-found" : brewPath,
+            requiredFor: [ToolchainLock.commandApply, ToolchainLock.commandVerify, ToolchainLock.commandReleaseRun],
+            action: status == .installed
+                ? "No action required"
+                : "Install Homebrew to enable tuist/fastlane auto-install",
+            installCommands: status == .installed ? [] : [brewInstallScript]
+        )
+    }
+
+    private func gitFinding(gitVersion: String, scope: Set<String>) -> DoctorFinding? {
+        let isReleaseRequested =
+            scope.contains(ToolchainLock.commandReleaseCheck)
+            || scope.contains(ToolchainLock.commandReleaseRun)
+        // git is only required for live match repository access during release-check/release-run.
+        let severity: DoctorSeverity = isReleaseRequested ? .required : .info
+        guard isReleaseRequested || gitVersion == "not-found" else { return nil }
+        let status: DoctorFindingStatus = gitVersion == "not-found" ? .missing : .installed
+        return DoctorFinding(
+            tool: "git",
+            severity: severity,
+            status: status,
+            expectedRule: "present",
+            actualVersion: gitVersion,
+            requiredFor: [ToolchainLock.commandReleaseCheck, ToolchainLock.commandReleaseRun],
+            action: status == .installed
+                ? "No action required"
+                : "Install Xcode Command Line Tools to get git before release-check/release-run: xcode-select --install",
+            installCommands: status == .installed ? [] : ["xcode-select --install"]
         )
     }
 
     private func evaluate(
         tool: String,
         actual: String,
-        requirement: ToolchainLockV2.ToolRequirement,
+        requirement: ToolchainLock.ToolRequirement,
         scope: Set<String>
     ) -> DoctorFinding {
         let required = !scope.isDisjoint(with: requirement.requiredFor)
@@ -368,7 +465,7 @@ extension DoctorEngine {
         )
     }
 
-    private func matches(actualVersion: String, rule: ToolchainLockV2.VersionRule) -> Bool {
+    private func matches(actualVersion: String, rule: ToolchainLock.VersionRule) -> Bool {
         switch rule.kind {
         case "exact":
             return actualVersion.trimmingCharacters(in: .whitespacesAndNewlines) == rule.value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -484,10 +581,10 @@ extension DoctorEngine {
     }
 
     private func normalizedScope(checkCommands: [String]) -> String {
-        if checkCommands == ToolchainLockV2.coreCommands {
+        if checkCommands == ToolchainLock.coreCommands {
             return "core"
         }
-        if checkCommands == ToolchainLockV2.allCommands {
+        if checkCommands == ToolchainLock.allCommands {
             return "all"
         }
         return checkCommands.joined(separator: ",")

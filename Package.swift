@@ -4,14 +4,15 @@ import PackageDescription
 let package = Package(
     name: "bos",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v14)
     ],
     products: [
         .library(name: "BosCore", targets: ["BosCore"]),
         .executable(name: "bos", targets: ["BosCLI"])
     ],
     dependencies: [
-        .package(url: "https://github.com/jpsim/Yams.git", from: "5.1.3")
+        .package(url: "https://github.com/jpsim/Yams.git", from: "5.1.3"),
+        .package(url: "https://github.com/swiftlang/swift-testing.git", from: "6.2.4")
     ],
     targets: [
         .target(
@@ -30,7 +31,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CoreTests",
-            dependencies: ["BosCore"]
+            dependencies: [
+                "BosCore",
+                .product(name: "Testing", package: "swift-testing")
+            ]
         )
     ]
 )

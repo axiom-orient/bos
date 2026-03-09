@@ -57,7 +57,7 @@ private func rejectUnknownKeys(
     }
 }
 
-public struct BlueprintV1: Codable, Sendable {
+public struct Blueprint: Codable, Sendable {
     public let schemaVersion: Int
     public let project: Project
     public let requirements: Requirements
@@ -83,8 +83,8 @@ public struct BlueprintV1: Codable, Sendable {
     }
 }
 
-extension BlueprintV1: StrictSchema {
-    fileprivate static let schemaName = "BlueprintV1"
+extension Blueprint: StrictSchema {
+    fileprivate static let schemaName = "Blueprint"
 
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case schemaVersion
@@ -122,7 +122,7 @@ extension BlueprintV1: StrictSchema {
     }
 }
 
-extension BlueprintV1 {
+extension Blueprint {
     public struct Project: Codable, Sendable {
         public let name: String
         public let bundleIdPrefix: String
@@ -201,17 +201,32 @@ extension BlueprintV1 {
     public struct Fastlane: Codable, Sendable {
         public let appIdentifier: String
         public let appleTeamId: String
+        public let appName: String?
+        public let sku: String?
+        public let primaryLanguage: String?
+        public let companyName: String?
 
-        public init(appIdentifier: String, appleTeamId: String) throws {
+        public init(
+            appIdentifier: String,
+            appleTeamId: String,
+            appName: String? = nil,
+            sku: String? = nil,
+            primaryLanguage: String? = nil,
+            companyName: String? = nil
+        ) throws {
             self.appIdentifier = appIdentifier
             self.appleTeamId = appleTeamId
+            self.appName = Self.normalizedOptional(appName)
+            self.sku = Self.normalizedOptional(sku)
+            self.primaryLanguage = Self.normalizedOptional(primaryLanguage)
+            self.companyName = Self.normalizedOptional(companyName)
             try validate()
         }
     }
 }
 
-extension BlueprintV1.Project: StrictSchema {
-    fileprivate static let schemaName = "BlueprintV1.project"
+extension Blueprint.Project: StrictSchema {
+    fileprivate static let schemaName = "Blueprint.project"
 
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case name
@@ -239,8 +254,8 @@ extension BlueprintV1.Project: StrictSchema {
     }
 }
 
-extension BlueprintV1.Requirements: StrictSchema {
-    fileprivate static let schemaName = "BlueprintV1.requirements"
+extension Blueprint.Requirements: StrictSchema {
+    fileprivate static let schemaName = "Blueprint.requirements"
 
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case reqIds
@@ -266,8 +281,8 @@ extension BlueprintV1.Requirements: StrictSchema {
     }
 }
 
-extension BlueprintV1.Modules: StrictSchema {
-    fileprivate static let schemaName = "BlueprintV1.modules"
+extension Blueprint.Modules: StrictSchema {
+    fileprivate static let schemaName = "Blueprint.modules"
 
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case app
@@ -284,7 +299,7 @@ extension BlueprintV1.Modules: StrictSchema {
             allowedKeys: CodingKeys.allCases.map(\.stringValue)
         )
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.app = try c.decode(BlueprintV1.AppModule.self, forKey: .app)
+        self.app = try c.decode(Blueprint.AppModule.self, forKey: .app)
         self.features = try c.decode([String].self, forKey: .features)
         self.domains = try c.decode([String].self, forKey: .domains)
         self.services = try c.decode([String].self, forKey: .services)
@@ -299,8 +314,8 @@ extension BlueprintV1.Modules: StrictSchema {
     }
 }
 
-extension BlueprintV1.AppModule: StrictSchema {
-    fileprivate static let schemaName = "BlueprintV1.modules.app"
+extension Blueprint.AppModule: StrictSchema {
+    fileprivate static let schemaName = "Blueprint.modules.app"
 
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case name
@@ -324,8 +339,8 @@ extension BlueprintV1.AppModule: StrictSchema {
     }
 }
 
-extension BlueprintV1.Wiring: StrictSchema {
-    fileprivate static let schemaName = "BlueprintV1.wiring"
+extension Blueprint.Wiring: StrictSchema {
+    fileprivate static let schemaName = "Blueprint.wiring"
 
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case rootFeature
@@ -351,7 +366,7 @@ extension BlueprintV1.Wiring: StrictSchema {
     }
 }
 
-extension BlueprintV1.Release {
+extension Blueprint.Release {
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case fastlane
     }
@@ -359,20 +374,24 @@ extension BlueprintV1.Release {
     public init(from decoder: Decoder) throws {
         try rejectUnknownKeys(
             decoder,
-            schema: "BlueprintV1.release",
+            schema: "Blueprint.release",
             allowedKeys: CodingKeys.allCases.map(\.stringValue)
         )
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.fastlane = try c.decode(BlueprintV1.Fastlane.self, forKey: .fastlane)
+        self.fastlane = try c.decode(Blueprint.Fastlane.self, forKey: .fastlane)
     }
 }
 
-extension BlueprintV1.Fastlane: StrictSchema {
-    fileprivate static let schemaName = "BlueprintV1.release.fastlane"
+extension Blueprint.Fastlane: StrictSchema {
+    fileprivate static let schemaName = "Blueprint.release.fastlane"
 
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case appIdentifier
         case appleTeamId
+        case appName
+        case sku
+        case primaryLanguage
+        case companyName
     }
 
     public init(from decoder: Decoder) throws {
@@ -384,6 +403,10 @@ extension BlueprintV1.Fastlane: StrictSchema {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.appIdentifier = try c.decode(String.self, forKey: .appIdentifier)
         self.appleTeamId = try c.decode(String.self, forKey: .appleTeamId)
+        self.appName = try c.decodeIfPresent(String.self, forKey: .appName)
+        self.sku = try c.decodeIfPresent(String.self, forKey: .sku)
+        self.primaryLanguage = try c.decodeIfPresent(String.self, forKey: .primaryLanguage)
+        self.companyName = try c.decodeIfPresent(String.self, forKey: .companyName)
         try validate()
     }
 
@@ -394,13 +417,33 @@ extension BlueprintV1.Fastlane: StrictSchema {
         if appleTeamId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw SchemaValidationError.invalidValue(schema: Self.schemaName, field: "appleTeamId", reason: "must not be empty")
         }
+        if let appName, appName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw SchemaValidationError.invalidValue(schema: Self.schemaName, field: "appName", reason: "must not be empty when provided")
+        }
+        if let sku, sku.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw SchemaValidationError.invalidValue(schema: Self.schemaName, field: "sku", reason: "must not be empty when provided")
+        }
+        if let primaryLanguage, primaryLanguage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw SchemaValidationError.invalidValue(schema: Self.schemaName, field: "primaryLanguage", reason: "must not be empty when provided")
+        }
+        if let companyName, companyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw SchemaValidationError.invalidValue(schema: Self.schemaName, field: "companyName", reason: "must not be empty when provided")
+        }
+    }
+
+    private static func normalizedOptional(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
-public struct ProfileV1: Codable, Sendable {
+public struct Profile: Codable, Sendable {
     public let schemaVersion: Int
     public let name: String
     public let defaults: Defaults
+    public let identity: Identity
+    public let release: ReleaseSettings
     public let featurePattern: FeaturePattern
     public let rules: Rules
 
@@ -408,25 +451,31 @@ public struct ProfileV1: Codable, Sendable {
         schemaVersion: Int,
         name: String,
         defaults: Defaults,
+        identity: Identity = .init(),
+        release: ReleaseSettings = .init(primaryLanguage: "en-US"),
         featurePattern: FeaturePattern,
         rules: Rules
     ) throws {
         self.schemaVersion = schemaVersion
         self.name = name
         self.defaults = defaults
+        self.identity = identity
+        self.release = release
         self.featurePattern = featurePattern
         self.rules = rules
         try validate()
     }
 }
 
-extension ProfileV1: StrictSchema {
-    fileprivate static let schemaName = "ProfileV1"
+extension Profile: StrictSchema {
+    fileprivate static let schemaName = "Profile"
 
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case schemaVersion
         case name
         case defaults
+        case identity
+        case release
         case featurePattern
         case rules
     }
@@ -441,6 +490,8 @@ extension ProfileV1: StrictSchema {
         self.schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
         self.name = try c.decode(String.self, forKey: .name)
         self.defaults = try c.decode(Defaults.self, forKey: .defaults)
+        self.identity = try c.decodeIfPresent(Identity.self, forKey: .identity) ?? .init()
+        self.release = try c.decodeIfPresent(ReleaseSettings.self, forKey: .release) ?? .init(primaryLanguage: "en-US")
         self.featurePattern = try c.decode(FeaturePattern.self, forKey: .featurePattern)
         self.rules = try c.decode(Rules.self, forKey: .rules)
         try validate()
@@ -457,7 +508,7 @@ extension ProfileV1: StrictSchema {
     }
 }
 
-extension ProfileV1 {
+extension Profile {
     public struct Defaults: Codable, Sendable {
         public let deploymentTarget: String
         public let appTargets: AppTargets
@@ -465,6 +516,43 @@ extension ProfileV1 {
         public init(deploymentTarget: String, appTargets: AppTargets) {
             self.deploymentTarget = deploymentTarget
             self.appTargets = appTargets
+        }
+    }
+
+    public struct Identity: Codable, Sendable {
+        public let companyName: String?
+        public let appName: String?
+        public let appIdentifier: String?
+        public let appleTeamId: String?
+
+        public init(
+            companyName: String? = nil,
+            appName: String? = nil,
+            appIdentifier: String? = nil,
+            appleTeamId: String? = nil
+        ) {
+            self.companyName = Self.normalized(companyName)
+            self.appName = Self.normalized(appName)
+            self.appIdentifier = Self.normalized(appIdentifier)
+            self.appleTeamId = Self.normalized(appleTeamId)
+        }
+    }
+
+    public struct ReleaseSettings: Codable, Sendable {
+        public let primaryLanguage: String
+        public let sku: String?
+        public let matchGitURL: String?
+
+        public init(
+            primaryLanguage: String = "en-US",
+            sku: String? = nil,
+            matchGitURL: String? = nil
+        ) {
+            self.primaryLanguage = primaryLanguage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "en-US"
+                : primaryLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.sku = Identity.normalized(sku)
+            self.matchGitURL = Identity.normalized(matchGitURL)
         }
     }
 
@@ -500,7 +588,19 @@ extension ProfileV1 {
     }
 }
 
-extension ProfileV1.Defaults {
+extension Profile.Identity {
+    fileprivate static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+extension Profile.ReleaseSettings {
+    fileprivate static let `default` = Profile.ReleaseSettings(primaryLanguage: "en-US")
+}
+
+extension Profile.Defaults {
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case deploymentTarget
         case appTargets
@@ -509,16 +609,90 @@ extension ProfileV1.Defaults {
     public init(from decoder: Decoder) throws {
         try rejectUnknownKeys(
             decoder,
-            schema: "ProfileV1.defaults",
+            schema: "Profile.defaults",
             allowedKeys: CodingKeys.allCases.map(\.stringValue)
         )
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.deploymentTarget = try c.decode(String.self, forKey: .deploymentTarget)
-        self.appTargets = try c.decode(ProfileV1.AppTargets.self, forKey: .appTargets)
+        self.appTargets = try c.decode(Profile.AppTargets.self, forKey: .appTargets)
     }
 }
 
-extension ProfileV1.AppTargets {
+extension Profile.Identity: StrictSchema {
+    fileprivate static let schemaName = "Profile.identity"
+
+    fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
+        case companyName
+        case appName
+        case appIdentifier
+        case appleTeamId
+    }
+
+    public init(from decoder: Decoder) throws {
+        try rejectUnknownKeys(
+            decoder,
+            schema: Self.schemaName,
+            allowedKeys: CodingKeys.allCases.map(\.stringValue)
+        )
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.companyName = Self.normalized(try c.decodeIfPresent(String.self, forKey: .companyName))
+        self.appName = Self.normalized(try c.decodeIfPresent(String.self, forKey: .appName))
+        self.appIdentifier = Self.normalized(try c.decodeIfPresent(String.self, forKey: .appIdentifier))
+        self.appleTeamId = Self.normalized(try c.decodeIfPresent(String.self, forKey: .appleTeamId))
+        try validate()
+    }
+
+    fileprivate func validate() throws {}
+}
+
+extension Profile.ReleaseSettings: StrictSchema {
+    fileprivate static let schemaName = "Profile.release"
+
+    fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
+        case primaryLanguage
+        case sku
+        case matchGitURL
+    }
+
+    public init(from decoder: Decoder) throws {
+        try rejectUnknownKeys(
+            decoder,
+            schema: Self.schemaName,
+            allowedKeys: CodingKeys.allCases.map(\.stringValue)
+        )
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.primaryLanguage = try c.decodeIfPresent(String.self, forKey: .primaryLanguage) ?? "en-US"
+        self.sku = Profile.Identity.normalized(try c.decodeIfPresent(String.self, forKey: .sku))
+        self.matchGitURL = Profile.Identity.normalized(try c.decodeIfPresent(String.self, forKey: .matchGitURL))
+        try validate()
+    }
+
+    fileprivate func validate() throws {
+        let trimmed = primaryLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            throw SchemaValidationError.invalidValue(schema: Self.schemaName, field: "primaryLanguage", reason: "must not be empty")
+        }
+        if trimmed != "en-US" && trimmed != "ko-KR" {
+            throw SchemaValidationError.invalidValue(
+                schema: Self.schemaName,
+                field: "primaryLanguage",
+                reason: "must be one of: en-US, ko-KR"
+            )
+        }
+        if let sku, sku.isEmpty {
+            throw SchemaValidationError.invalidValue(schema: Self.schemaName, field: "sku", reason: "must not be empty when provided")
+        }
+        if let matchGitURL, !matchGitURL.hasPrefix("https://") && !matchGitURL.hasPrefix("ssh://") && !matchGitURL.hasPrefix("git@") {
+            throw SchemaValidationError.invalidValue(
+                schema: Self.schemaName,
+                field: "matchGitURL",
+                reason: "must start with https://, ssh://, or git@ when provided"
+            )
+        }
+    }
+}
+
+extension Profile.AppTargets {
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case controlsExtension
         case uiTests
@@ -527,7 +701,7 @@ extension ProfileV1.AppTargets {
     public init(from decoder: Decoder) throws {
         try rejectUnknownKeys(
             decoder,
-            schema: "ProfileV1.defaults.appTargets",
+            schema: "Profile.defaults.appTargets",
             allowedKeys: CodingKeys.allCases.map(\.stringValue)
         )
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -536,7 +710,7 @@ extension ProfileV1.AppTargets {
     }
 }
 
-extension ProfileV1.FeaturePattern {
+extension Profile.FeaturePattern {
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case sourcesInterface
         case designFolder
@@ -545,7 +719,7 @@ extension ProfileV1.FeaturePattern {
     public init(from decoder: Decoder) throws {
         try rejectUnknownKeys(
             decoder,
-            schema: "ProfileV1.featurePattern",
+            schema: "Profile.featurePattern",
             allowedKeys: CodingKeys.allCases.map(\.stringValue)
         )
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -554,8 +728,8 @@ extension ProfileV1.FeaturePattern {
     }
 }
 
-extension ProfileV1.Rules: StrictSchema {
-    fileprivate static let schemaName = "ProfileV1.rules"
+extension Profile.Rules: StrictSchema {
+    fileprivate static let schemaName = "Profile.rules"
 
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case testingStyle
@@ -581,110 +755,8 @@ extension ProfileV1.Rules: StrictSchema {
     }
 }
 
-public struct ToolchainLockV1: Codable, Sendable {
-    public let schemaVersion: Int
-    public let swift: String
-    public let tuist: String
-    public let fastlane: String
-    public let tmaPluginRef: TMAPluginRef
 
-    public init(
-        schemaVersion: Int,
-        swift: String,
-        tuist: String,
-        fastlane: String,
-        tmaPluginRef: TMAPluginRef
-    ) throws {
-        self.schemaVersion = schemaVersion
-        self.swift = swift
-        self.tuist = tuist
-        self.fastlane = fastlane
-        self.tmaPluginRef = tmaPluginRef
-        try validate()
-    }
-}
-
-extension ToolchainLockV1: StrictSchema {
-    fileprivate static let schemaName = "ToolchainLockV1"
-
-    fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
-        case schemaVersion
-        case swift
-        case tuist
-        case fastlane
-        case tmaPluginRef
-    }
-
-    public init(from decoder: Decoder) throws {
-        try rejectUnknownKeys(
-            decoder,
-            schema: Self.schemaName,
-            allowedKeys: CodingKeys.allCases.map(\.stringValue)
-        )
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
-        self.swift = try c.decode(String.self, forKey: .swift)
-        self.tuist = try c.decode(String.self, forKey: .tuist)
-        self.fastlane = try c.decode(String.self, forKey: .fastlane)
-        self.tmaPluginRef = try c.decode(TMAPluginRef.self, forKey: .tmaPluginRef)
-        try validate()
-    }
-
-    fileprivate func validate() throws {
-        guard schemaVersion == 1 else {
-            throw SchemaValidationError.unsupportedSchemaVersion(
-                schema: Self.schemaName,
-                expected: 1,
-                actual: schemaVersion
-            )
-        }
-    }
-}
-
-extension ToolchainLockV1 {
-    public struct TMAPluginRef: Codable, Sendable {
-        public let type: String
-        public let value: String
-
-        public init(type: String, value: String) throws {
-            self.type = type
-            self.value = value
-            try validate()
-        }
-    }
-}
-
-extension ToolchainLockV1.TMAPluginRef: StrictSchema {
-    fileprivate static let schemaName = "ToolchainLockV1.tmaPluginRef"
-
-    fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
-        case type
-        case value
-    }
-
-    public init(from decoder: Decoder) throws {
-        try rejectUnknownKeys(
-            decoder,
-            schema: Self.schemaName,
-            allowedKeys: CodingKeys.allCases.map(\.stringValue)
-        )
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.type = try c.decode(String.self, forKey: .type)
-        self.value = try c.decode(String.self, forKey: .value)
-        try validate()
-    }
-
-    fileprivate func validate() throws {
-        if type.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            throw SchemaValidationError.invalidValue(schema: Self.schemaName, field: "type", reason: "must not be empty")
-        }
-        if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            throw SchemaValidationError.invalidValue(schema: Self.schemaName, field: "value", reason: "must not be empty")
-        }
-    }
-}
-
-public struct ToolchainLockV2: Codable, Sendable {
+public struct ToolchainLock: Codable, Sendable {
     public let schemaVersion: Int
     public let tools: Tools
     public let tmaPluginRef: TMAPluginRef
@@ -697,8 +769,8 @@ public struct ToolchainLockV2: Codable, Sendable {
     }
 }
 
-extension ToolchainLockV2: StrictSchema {
-    fileprivate static let schemaName = "ToolchainLockV2"
+extension ToolchainLock: StrictSchema {
+    fileprivate static let schemaName = "ToolchainLock"
 
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case schemaVersion
@@ -730,7 +802,7 @@ extension ToolchainLockV2: StrictSchema {
     }
 }
 
-extension ToolchainLockV2 {
+extension ToolchainLock {
     public struct Tools: Codable, Sendable {
         public let swift: ToolRequirement
         public let tuist: ToolRequirement
@@ -780,8 +852,8 @@ extension ToolchainLockV2 {
     }
 }
 
-extension ToolchainLockV2.Tools: StrictSchema {
-    fileprivate static let schemaName = "ToolchainLockV2.tools"
+extension ToolchainLock.Tools: StrictSchema {
+    fileprivate static let schemaName = "ToolchainLock.tools"
 
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case swift
@@ -796,17 +868,17 @@ extension ToolchainLockV2.Tools: StrictSchema {
             allowedKeys: CodingKeys.allCases.map(\.stringValue)
         )
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.swift = try c.decode(ToolchainLockV2.ToolRequirement.self, forKey: .swift)
-        self.tuist = try c.decode(ToolchainLockV2.ToolRequirement.self, forKey: .tuist)
-        self.fastlane = try c.decode(ToolchainLockV2.ToolRequirement.self, forKey: .fastlane)
+        self.swift = try c.decode(ToolchainLock.ToolRequirement.self, forKey: .swift)
+        self.tuist = try c.decode(ToolchainLock.ToolRequirement.self, forKey: .tuist)
+        self.fastlane = try c.decode(ToolchainLock.ToolRequirement.self, forKey: .fastlane)
         try validate()
     }
 
     fileprivate func validate() throws {}
 }
 
-extension ToolchainLockV2.ToolRequirement: StrictSchema {
-    fileprivate static let schemaName = "ToolchainLockV2.tools.toolRequirement"
+extension ToolchainLock.ToolRequirement: StrictSchema {
+    fileprivate static let schemaName = "ToolchainLock.tools.toolRequirement"
 
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case versionRule
@@ -821,7 +893,7 @@ extension ToolchainLockV2.ToolRequirement: StrictSchema {
             allowedKeys: CodingKeys.allCases.map(\.stringValue)
         )
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.versionRule = try c.decode(ToolchainLockV2.VersionRule.self, forKey: .versionRule)
+        self.versionRule = try c.decode(ToolchainLock.VersionRule.self, forKey: .versionRule)
         self.requiredFor = try c.decode([String].self, forKey: .requiredFor)
         self.installHints = try c.decode([String].self, forKey: .installHints)
         try validate()
@@ -840,8 +912,8 @@ extension ToolchainLockV2.ToolRequirement: StrictSchema {
     }
 }
 
-extension ToolchainLockV2.VersionRule: StrictSchema {
-    fileprivate static let schemaName = "ToolchainLockV2.tools.versionRule"
+extension ToolchainLock.VersionRule: StrictSchema {
+    fileprivate static let schemaName = "ToolchainLock.tools.versionRule"
 
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case kind
@@ -875,8 +947,8 @@ extension ToolchainLockV2.VersionRule: StrictSchema {
     }
 }
 
-extension ToolchainLockV2.TMAPluginRef: StrictSchema {
-    fileprivate static let schemaName = "ToolchainLockV2.tmaPluginRef"
+extension ToolchainLock.TMAPluginRef: StrictSchema {
+    fileprivate static let schemaName = "ToolchainLock.tmaPluginRef"
 
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case type
@@ -905,11 +977,14 @@ extension ToolchainLockV2.TMAPluginRef: StrictSchema {
     }
 }
 
-extension ToolchainLockV2 {
+extension ToolchainLock {
     public static let commandPlan = "plan"
     public static let commandApply = "apply"
     public static let commandVerify = "verify"
+    public static let commandAppRegister = "app-register"
     public static let commandReleaseInit = "release-init"
+    public static let commandReleaseCheck = "release-check"
+    public static let commandReleaseRun = "release-run"
     public static let commandDoctor = "doctor"
 
     public static var coreCommands: [String] {
@@ -917,15 +992,15 @@ extension ToolchainLockV2 {
     }
 
     public static var allCommands: [String] {
-        [commandPlan, commandApply, commandVerify, commandReleaseInit]
+        [commandPlan, commandApply, commandVerify, commandAppRegister, commandReleaseInit, commandReleaseCheck, commandReleaseRun]
     }
 
-    public static func defaultPolicy(tmaPluginRef: TMAPluginRef) throws -> ToolchainLockV2 {
+    public static func defaultPolicy(tmaPluginRef: TMAPluginRef) throws -> ToolchainLock {
         let swiftRule = try VersionRule(kind: "semver-range", value: ">=6.0 <7.0")
         let tuistRule = try VersionRule(kind: "semver-range", value: ">=4.0.0 <5.0.0")
         let fastlaneRule = try VersionRule(kind: "semver-range", value: ">=2.228.0 <3.0.0")
 
-        return try ToolchainLockV2(
+        return try ToolchainLock(
             schemaVersion: 2,
             tools: Tools(
                 swift: try ToolRequirement(
@@ -935,12 +1010,12 @@ extension ToolchainLockV2 {
                 ),
                 tuist: try ToolRequirement(
                     versionRule: tuistRule,
-                    requiredFor: [commandApply, commandVerify],
+                    requiredFor: [commandApply, commandVerify, commandReleaseRun],
                     installHints: ["brew install tuist", "mise use -g tuist@latest"]
                 ),
                 fastlane: try ToolRequirement(
                     versionRule: fastlaneRule,
-                    requiredFor: [commandReleaseInit],
+                    requiredFor: [commandReleaseInit, commandReleaseCheck, commandReleaseRun],
                     installHints: ["brew install fastlane", "gem install fastlane -NV"]
                 )
             ),
@@ -949,52 +1024,16 @@ extension ToolchainLockV2 {
     }
 }
 
-extension ToolchainLockV1 {
-    public func asToolchainLockV2() throws -> ToolchainLockV2 {
-        func majorRange(from version: String) throws -> ToolchainLockV2.VersionRule {
-            let raw = version.trimmingCharacters(in: .whitespacesAndNewlines)
-            let components = raw.split(separator: ".")
-            guard let majorRaw = components.first, let major = Int(majorRaw) else {
-                let exactValue = raw.isEmpty ? "0" : raw
-                return try ToolchainLockV2.VersionRule(kind: "exact", value: exactValue)
-            }
-            let upper = major + 1
-            let lowerBound = components.prefix(3).joined(separator: ".")
-            let value = ">=\(lowerBound) <\(upper).0.0"
-            return try ToolchainLockV2.VersionRule(kind: "semver-range", value: value)
-        }
 
-        return try ToolchainLockV2(
-            schemaVersion: 2,
-            tools: .init(
-                swift: try .init(
-                    versionRule: majorRange(from: swift),
-                    requiredFor: ToolchainLockV2.allCommands,
-                    installHints: ["xcode-select --install", "brew install swift"]
-                ),
-                tuist: try .init(
-                    versionRule: majorRange(from: tuist),
-                    requiredFor: [ToolchainLockV2.commandApply, ToolchainLockV2.commandVerify],
-                    installHints: ["brew install tuist", "mise use -g tuist@latest"]
-                ),
-                fastlane: try .init(
-                    versionRule: majorRange(from: fastlane),
-                    requiredFor: [ToolchainLockV2.commandReleaseInit],
-                    installHints: ["brew install fastlane", "gem install fastlane -NV"]
-                )
-            ),
-            tmaPluginRef: .init(type: tmaPluginRef.type, value: tmaPluginRef.value)
-        )
-    }
-}
-
-public struct BootstrapLockV1: Codable, Sendable {
+public struct BootstrapLock: Codable, Sendable {
     public let appliedAt: String
     public let blueprintHash: String
     public let profileHash: String
     public let managedFiles: [String]
     public let verifySummary: StepSummary
     public let releaseSummary: StepSummary
+    public let releaseCheckSummary: StepSummary?
+    public let releaseRunSummary: StepSummary?
 
     public init(
         appliedAt: String,
@@ -1002,7 +1041,9 @@ public struct BootstrapLockV1: Codable, Sendable {
         profileHash: String,
         managedFiles: [String],
         verifySummary: StepSummary,
-        releaseSummary: StepSummary
+        releaseSummary: StepSummary,
+        releaseCheckSummary: StepSummary? = nil,
+        releaseRunSummary: StepSummary? = nil
     ) throws {
         self.appliedAt = appliedAt
         self.blueprintHash = blueprintHash
@@ -1010,12 +1051,14 @@ public struct BootstrapLockV1: Codable, Sendable {
         self.managedFiles = managedFiles
         self.verifySummary = verifySummary
         self.releaseSummary = releaseSummary
+        self.releaseCheckSummary = releaseCheckSummary
+        self.releaseRunSummary = releaseRunSummary
         try validate()
     }
 }
 
-extension BootstrapLockV1: StrictSchema {
-    fileprivate static let schemaName = "BootstrapLockV1"
+extension BootstrapLock: StrictSchema {
+    fileprivate static let schemaName = "BootstrapLock"
 
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case appliedAt
@@ -1024,6 +1067,8 @@ extension BootstrapLockV1: StrictSchema {
         case managedFiles
         case verifySummary
         case releaseSummary
+        case releaseCheckSummary
+        case releaseRunSummary
     }
 
     public init(from decoder: Decoder) throws {
@@ -1039,6 +1084,8 @@ extension BootstrapLockV1: StrictSchema {
         self.managedFiles = try c.decode([String].self, forKey: .managedFiles)
         self.verifySummary = try c.decode(StepSummary.self, forKey: .verifySummary)
         self.releaseSummary = try c.decode(StepSummary.self, forKey: .releaseSummary)
+        self.releaseCheckSummary = try c.decodeIfPresent(StepSummary.self, forKey: .releaseCheckSummary)
+        self.releaseRunSummary = try c.decodeIfPresent(StepSummary.self, forKey: .releaseRunSummary)
         try validate()
     }
 
@@ -1049,7 +1096,7 @@ extension BootstrapLockV1: StrictSchema {
     }
 }
 
-extension BootstrapLockV1 {
+extension BootstrapLock {
     public struct StepSummary: Codable, Sendable {
         public let status: String
         public let message: String?
@@ -1062,8 +1109,8 @@ extension BootstrapLockV1 {
     }
 }
 
-extension BootstrapLockV1.StepSummary: StrictSchema {
-    fileprivate static let schemaName = "BootstrapLockV1.stepSummary"
+extension BootstrapLock.StepSummary: StrictSchema {
+    fileprivate static let schemaName = "BootstrapLock.stepSummary"
 
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case status
@@ -1089,14 +1136,16 @@ extension BootstrapLockV1.StepSummary: StrictSchema {
     }
 }
 
-extension ProfileV1 {
-    public static let `default`: ProfileV1 = try! ProfileV1(
+extension Profile {
+    public static let `default`: Profile = try! Profile(
         schemaVersion: 1,
         name: "default",
         defaults: .init(
             deploymentTarget: "18.0",
             appTargets: .init(controlsExtension: false, uiTests: true)
         ),
+        identity: .init(),
+        release: .init(primaryLanguage: "en-US"),
         featurePattern: .init(sourcesInterface: true, designFolder: false),
         rules: try! .init(
             testingStyle: "swift-testing",

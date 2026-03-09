@@ -10,6 +10,9 @@ enum ExitCode: Int32 {
     case verifyFailed = 4
     case releaseInitFailed = 5
     case doctorFailed = 6
+    case releaseCheckFailed = 7
+    case appRegisterFailed = 8
+    case releaseRunFailed = 9
 }
 
 enum OutputFormat: String {
@@ -23,22 +26,31 @@ enum DoctorScope: String {
     case plan
     case apply
     case verify
+    case appRegister = "app-register"
     case releaseInit = "release-init"
+    case releaseCheck = "release-check"
+    case releaseRun = "release-run"
 
     var commands: [String] {
         switch self {
         case .core:
-            return ToolchainLockV2.coreCommands
+            return ToolchainLock.coreCommands
         case .all:
-            return ToolchainLockV2.allCommands
+            return ToolchainLock.allCommands
         case .plan:
-            return [ToolchainLockV2.commandPlan]
+            return [ToolchainLock.commandPlan]
         case .apply:
-            return [ToolchainLockV2.commandApply]
+            return [ToolchainLock.commandApply]
         case .verify:
-            return [ToolchainLockV2.commandVerify]
+            return [ToolchainLock.commandVerify]
+        case .appRegister:
+            return [ToolchainLock.commandAppRegister]
         case .releaseInit:
-            return [ToolchainLockV2.commandReleaseInit]
+            return [ToolchainLock.commandReleaseInit]
+        case .releaseCheck:
+            return [ToolchainLock.commandReleaseCheck]
+        case .releaseRun:
+            return [ToolchainLock.commandReleaseRun]
         }
     }
 }
@@ -51,7 +63,7 @@ struct DoctorInstallAttempt: Codable {
     let stderr: String
 }
 
-struct DoctorCommandOutputV2: Codable {
+struct DoctorCommandOutput: Codable {
     let command: String
     let status: String
     let exitCode: Int
@@ -62,12 +74,52 @@ struct DoctorCommandOutputV2: Codable {
     let artifacts: [String]
 }
 
+struct ReleaseCheckCommandOutput: Codable {
+    let command: String
+    let status: String
+    let exitCode: Int
+    let summary: String
+    let mode: String
+    let failureCode: String?
+    let failedStep: String?
+    let artifacts: [String]
+}
+
+struct ReleaseRunCommandOutput: Codable {
+    let command: String
+    let status: String
+    let exitCode: Int
+    let summary: String
+    let stage: String
+    let failureCode: String?
+    let failedStep: String?
+    let ipaPath: String?
+    let artifacts: [String]
+}
+
+struct AppRegisterCommandOutput: Codable {
+    let command: String
+    let status: String
+    let exitCode: Int
+    let summary: String
+    let appIdentifier: String?
+    let appName: String?
+    let sku: String?
+    let primaryLanguage: String?
+    let bundleIdStatus: String?
+    let appStatus: String?
+    let artifacts: [String]
+}
+
 enum BosCommand: String, CaseIterable {
     case doctor
     case plan
     case apply
     case verify
+    case appRegister = "app-register"
     case releaseInit = "release-init"
+    case releaseCheck = "release-check"
+    case releaseRun = "release-run"
 
     var summary: String {
         switch self {
@@ -79,23 +131,35 @@ enum BosCommand: String, CaseIterable {
             return "scaffold 생성 + 정책 패치 적용"
         case .verify:
             return "tuist/xcodebuild 검증 게이트 실행"
+        case .appRegister:
+            return "App Store Connect 앱/Bundle ID 등록 + profile SSOT 동기화"
         case .releaseInit:
             return "fastlane 파일/기본 lane 생성"
+        case .releaseCheck:
+            return "App Store Connect/match live signing 준비 검증"
+        case .releaseRun:
+            return "IPA build/upload/submit를 한 번에 실행"
         }
     }
 
     var usage: String {
         switch self {
         case .doctor:
-            return "bos doctor [--for core|all|plan|apply|verify|release-init] [--project-root <path>] [--format human|json]"
+            return "bos doctor [--for core|all|plan|apply|verify|app-register|release-init|release-check|release-run] [--project-root <path>] [--format human|json]"
         case .plan:
-            return "bos plan (--prd <path> | --plan-dir <path> [--app-identifier <id>] [--apple-team-id <team>]) [--profile <path>] [--out <blueprint.yaml>] [--project-root <path>] [--format human|json]"
+            return "bos plan (--prd <path> | --plan-dir <path>) [--profile <path>] [--out <blueprint.yaml>] [--project-root <path>] [--company-name <name>] [--app-name <name>] [--app-identifier <id>] [--apple-team-id <team>] [--primary-language en-US|ko-KR] [--sku <value>] [--format human|json]"
         case .apply:
             return "bos apply [--blueprint <path>] [--app-identifier <id>] [--apple-team-id <team>] [--profile <path>] [--mode init|incremental] [--fix] [--dry-run] [--project-root <path>] [--format human|json]"
         case .verify:
             return "bos verify [--profile <path>] [--project-root <path>] [--format human|json]"
+        case .appRegister:
+            return "bos app-register [--blueprint <path>] [--profile <path>] [--project-root <path>] [--company-name <name>] [--app-name <name>] [--app-identifier <id>] [--apple-team-id <team>] [--primary-language en-US|ko-KR] [--sku <value>] [--match-git-url <url>] [--format human|json]"
         case .releaseInit:
             return "bos release-init [--blueprint <path>] [--profile <path>] [--project-root <path>] [--format human|json]"
+        case .releaseCheck:
+            return "bos release-check [--profile <path>] [--project-root <path>] [--mode connectivity|readonly-certs|sync-certs] [--allow-write] [--format human|json]"
+        case .releaseRun:
+            return "bos release-run [--blueprint <path>] [--profile <path>] [--project-root <path>] [--stage build|beta|release|submit] [--allow-signing-write] [--format human|json]"
         }
     }
 }
@@ -125,7 +189,10 @@ func printRootHelp() {
       bos plan
       bos apply --mode init
       bos verify
+      bos app-register
       bos release-init
+      bos release-check
+      bos release-run --stage beta
     """
 
     print(help)
@@ -259,13 +326,79 @@ func resolveProfilePathOrFail(
     }
 
     do {
-        let yaml = try encodeYAML(ProfileV1.default)
-        try writeTextFile(yaml, to: fallback)
+        try writeTextFile(defaultProfileTemplate(), to: fallback)
         fputs("note: profile not found — created default at \(fallback.path(percentEncoded: false))\n", stderr)
     } catch {
         fail(message: "could not create default profile: \(error)", command: command, format: format)
     }
     return fallback
+}
+
+func defaultBlueprintCandidates(projectRoot: URL) -> [URL] {
+    [
+        projectRoot.appending(path: ".bos/plan/blueprint.yaml"),
+        projectRoot.appending(path: "config/blueprint.yaml")
+    ]
+}
+
+func resolveOptionalBlueprintPath(raw: String?, projectRoot: URL) -> URL? {
+    if let raw {
+        return resolvePath(raw, base: projectRoot)
+    }
+
+    return defaultBlueprintCandidates(projectRoot: projectRoot).first {
+        FileManager.default.fileExists(atPath: $0.path(percentEncoded: false))
+    }
+}
+
+func resolveBlueprintPathOrFail(
+    raw: String?,
+    projectRoot: URL,
+    command: BosCommand,
+    format: OutputFormat
+) -> URL {
+    if let path = resolveOptionalBlueprintPath(raw: raw, projectRoot: projectRoot) {
+        return path
+    }
+
+    let expected = defaultBlueprintCandidates(projectRoot: projectRoot)
+        .map { $0.path(percentEncoded: false) }
+        .joined(separator: " or ")
+    fail(
+        message: "blueprint not found. pass `--blueprint` or create \(expected)",
+        command: command,
+        format: format
+    )
+}
+
+func defaultProfileTemplate() -> String {
+    """
+    schemaVersion: 1
+    name: default
+    defaults:
+      deploymentTarget: "18.0"
+      appTargets:
+        controlsExtension: false
+        uiTests: true
+    identity:
+      companyName:
+      appName:
+      appIdentifier:
+      appleTeamId:
+    release:
+      primaryLanguage: "en-US"
+      sku:
+      matchGitURL:
+    featurePattern:
+      sourcesInterface: true
+      designFolder: false
+    rules:
+      testingStyle: swift-testing
+      forbidPatterns:
+        - "@unchecked Sendable"
+        - "Date()"
+        - "UUID()"
+    """
 }
 
 func resolveToolchainLockPath(projectRoot: URL) -> URL? {
@@ -310,11 +443,12 @@ func signingEnvironmentLoadErrorMessage(_ error: Error, projectRoot: URL) -> Str
 func signingEnvironmentTemplate() -> String {
     """
     # bos signing environment (do not commit this file)
-    # Fill all values, then run: bos doctor
+    # Fill all values, then run: bos doctor --for release-run
+    # MATCH_GIT_URL moved to .bos/config/profile.yaml release.matchGitURL.
+    # Legacy fallback from this file is still accepted if present in shell env.
     ASC_ISSUER_ID=
     ASC_KEY_ID=
     ASC_KEY_P8_BASE64=
-    MATCH_GIT_URL=
     MATCH_PASSWORD=
     """
 }
@@ -398,16 +532,18 @@ func mergeProcessEnvironment(
 
 func resolveSigningEnvironment(
     projectRoot: URL,
+    profile: Profile? = nil,
     processEnvironment: [String: String]
 ) throws -> (environment: [String: String], note: String?) {
     let template = try ensureSigningEnvironmentTemplate(projectRoot: projectRoot)
     let fileEnvironment = try parseEnvironmentFile(at: template.path)
     let merged = mergeProcessEnvironment(processEnvironment: processEnvironment, fileEnvironment: fileEnvironment)
+    let effective = profile.map { ReleaseEnvironment.effectiveEnvironment(profile: $0, environment: merged) } ?? merged
 
     if template.created {
-        return (merged, "Created signing env template at \(template.path.path(percentEncoded: false))")
+        return (effective, "Created signing env template at \(template.path.path(percentEncoded: false))")
     }
-    return (merged, nil)
+    return (effective, nil)
 }
 
 func resolveBrewExecutable() -> String? {
@@ -446,25 +582,25 @@ func runInstallAttempt(
     }
 }
 
-func installFastlaneWithBrew(projectRoot: URL) -> [DoctorInstallAttempt] {
+func installToolWithBrew(tool: String, projectRoot: URL) -> [DoctorInstallAttempt] {
     var attempts: [DoctorInstallAttempt] = []
 
     if let brew = resolveBrewExecutable() {
-        let label = "brew install fastlane"
         attempts.append(
             runInstallAttempt(
-                tool: "fastlane",
-                commandDescription: label,
-                command: [brew, "install", "fastlane"],
+                tool: tool,
+                commandDescription: "brew install \(tool)",
+                command: [brew, "install", tool],
                 workingDirectory: projectRoot
             )
         )
         return attempts
     }
 
+    // brew not found — install brew first, then tool
     let brewInstallScript = #"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#
     let bootstrap = runInstallAttempt(
-        tool: "fastlane",
+        tool: tool,
         commandDescription: brewInstallScript,
         command: ["/bin/bash", "-lc", brewInstallScript],
         workingDirectory: projectRoot
@@ -478,8 +614,8 @@ func installFastlaneWithBrew(projectRoot: URL) -> [DoctorInstallAttempt] {
     guard let brew = resolveBrewExecutable() else {
         attempts.append(
             DoctorInstallAttempt(
-                tool: "fastlane",
-                command: "brew install fastlane",
+                tool: tool,
+                command: "brew install \(tool)",
                 status: "skipped-no-runner",
                 exitCode: 127,
                 stderr: "brew installation finished but brew executable is not on PATH"
@@ -490,9 +626,9 @@ func installFastlaneWithBrew(projectRoot: URL) -> [DoctorInstallAttempt] {
 
     attempts.append(
         runInstallAttempt(
-            tool: "fastlane",
-            commandDescription: "brew install fastlane",
-            command: [brew, "install", "fastlane"],
+            tool: tool,
+            commandDescription: "brew install \(tool)",
+            command: [brew, "install", tool],
             workingDirectory: projectRoot
         )
     )
@@ -500,35 +636,41 @@ func installFastlaneWithBrew(projectRoot: URL) -> [DoctorInstallAttempt] {
     return attempts
 }
 
-func decodeToolchainLockV2WithCompatibility(at path: URL) throws -> ToolchainLockV2 {
-    struct SchemaProbe: Decodable {
-        let schemaVersion: Int
-    }
+func installFastlaneWithBrew(projectRoot: URL) -> [DoctorInstallAttempt] {
+    installToolWithBrew(tool: "fastlane", projectRoot: projectRoot)
+}
 
+func installTuistWithBrew(projectRoot: URL) -> [DoctorInstallAttempt] {
+    installToolWithBrew(tool: "tuist", projectRoot: projectRoot)
+}
+
+private struct ToolchainLockSchemaProbe: Decodable {
+    let schemaVersion: Int
+}
+
+func decodeToolchainLock(at path: URL) throws -> ToolchainLock {
     let text = try readTextFile(path)
     let decoder = YAMLDecoder()
-    let probe: SchemaProbe
+
+    if let probe = try? decoder.decode(ToolchainLockSchemaProbe.self, from: text),
+       probe.schemaVersion == 1 {
+        throw NSError(
+            domain: "BosCLI.Decode",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "unsupported legacy toolchain lock schemaVersion 1 at \(path.path(percentEncoded: false)); delete it and rerun `bos doctor` to regenerate schemaVersion 2"
+            ]
+        )
+    }
+
     do {
-        probe = try decoder.decode(SchemaProbe.self, from: text)
+        return try decoder.decode(ToolchainLock.self, from: text)
     } catch {
         throw NSError(
             domain: "BosCLI.Decode",
             code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "failed to decode schemaVersion from \(path.path(percentEncoded: false)): \(error)"]
-        )
-    }
-
-    switch probe.schemaVersion {
-    case 2:
-        return try decoder.decode(ToolchainLockV2.self, from: text)
-    case 1:
-        let legacy = try decoder.decode(ToolchainLockV1.self, from: text)
-        return try legacy.asToolchainLockV2()
-    default:
-        throw NSError(
-            domain: "BosCLI.Decode",
-            code: 2,
-            userInfo: [NSLocalizedDescriptionKey: "unsupported toolchain lock schemaVersion \(probe.schemaVersion)"]
+            userInfo: [NSLocalizedDescriptionKey: "failed to decode toolchain lock at \(path.path(percentEncoded: false)): \(error)"]
         )
     }
 }
@@ -677,7 +819,7 @@ func printJSONPayload(
     summary: String,
     artifacts: [String] = []
 ) {
-    let payload = CommandOutputV1(
+    let payload = CommandOutput(
         command: command,
         status: status,
         exitCode: exitCode,
@@ -700,7 +842,7 @@ func printDoctorJSONPayload(
     installAttempts: [DoctorInstallAttempt],
     artifacts: [String]
 ) {
-    let payload = DoctorCommandOutputV2(
+    let payload = DoctorCommandOutput(
         command: BosCommand.doctor.rawValue,
         status: status,
         exitCode: exitCode,
@@ -717,6 +859,98 @@ func printDoctorJSONPayload(
         print(String(decoding: data, as: UTF8.self))
     } catch {
         fputs("error: failed to encode doctor JSON output\n", stderr)
+    }
+}
+
+func printReleaseCheckJSONPayload(
+    status: String,
+    exitCode: Int,
+    summary: String,
+    mode: ReleaseCheckMode,
+    failureCode: ReleaseCheckFailureCode?,
+    failedStep: ReleaseCheckStep?,
+    artifacts: [String]
+) {
+    let payload = ReleaseCheckCommandOutput(
+        command: BosCommand.releaseCheck.rawValue,
+        status: status,
+        exitCode: exitCode,
+        summary: summary,
+        mode: mode.rawValue,
+        failureCode: failureCode?.rawValue,
+        failedStep: failedStep?.rawValue,
+        artifacts: artifacts
+    )
+    do {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(payload)
+        print(String(decoding: data, as: UTF8.self))
+    } catch {
+        fputs("error: failed to encode release-check JSON output\n", stderr)
+    }
+}
+
+func printReleaseRunJSONPayload(
+    status: String,
+    exitCode: Int,
+    summary: String,
+    stage: ReleaseRunStage,
+    failureCode: ReleaseRunFailureCode?,
+    failedStep: ReleaseRunStep?,
+    ipaPath: String?,
+    artifacts: [String]
+) {
+    let payload = ReleaseRunCommandOutput(
+        command: BosCommand.releaseRun.rawValue,
+        status: status,
+        exitCode: exitCode,
+        summary: summary,
+        stage: stage.rawValue,
+        failureCode: failureCode?.rawValue,
+        failedStep: failedStep?.rawValue,
+        ipaPath: ipaPath,
+        artifacts: artifacts
+    )
+    do {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(payload)
+        print(String(decoding: data, as: UTF8.self))
+    } catch {
+        fputs("error: failed to encode release-run JSON output\n", stderr)
+    }
+}
+
+func printAppRegisterJSONPayload(
+    status: String,
+    exitCode: Int,
+    summary: String,
+    metadata: AppRegistrationResolvedMetadata?,
+    bundleIdStatus: AppRegistrationResourceStatus?,
+    appStatus: AppRegistrationResourceStatus?,
+    artifacts: [String]
+) {
+    let payload = AppRegisterCommandOutput(
+        command: BosCommand.appRegister.rawValue,
+        status: status,
+        exitCode: exitCode,
+        summary: summary,
+        appIdentifier: metadata?.appIdentifier,
+        appName: metadata?.appName,
+        sku: metadata?.sku,
+        primaryLanguage: metadata?.primaryLanguage,
+        bundleIdStatus: bundleIdStatus?.rawValue,
+        appStatus: appStatus?.rawValue,
+        artifacts: artifacts
+    )
+    do {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(payload)
+        print(String(decoding: data, as: UTF8.self))
+    } catch {
+        fputs("error: failed to encode app-register JSON output\n", stderr)
     }
 }
 
@@ -751,15 +985,45 @@ struct ProcessVerifyRunner: VerifyCommandRunning {
     }
 }
 
+struct ProcessReleaseCheckRunner: ReleaseCheckCommandRunning {
+    func run(command: [String], in workingDirectory: URL, environment: [String: String]) throws -> ReleaseCheckCommandResult {
+        let result = try runProcess(
+            command: command,
+            workingDirectory: workingDirectory,
+            environment: environment
+        )
+        return ReleaseCheckCommandResult(
+            exitCode: result.status,
+            stdout: result.stdout,
+            stderr: result.stderr
+        )
+    }
+}
+
+struct ProcessReleaseRunRunner: ReleaseRunCommandRunning {
+    func run(command: [String], in workingDirectory: URL, environment: [String: String]) throws -> ReleaseRunCommandResult {
+        let result = try runProcess(
+            command: command,
+            workingDirectory: workingDirectory,
+            environment: environment
+        )
+        return ReleaseRunCommandResult(
+            exitCode: result.status,
+            stdout: result.stdout,
+            stderr: result.stderr
+        )
+    }
+}
+
 func parseDoctorScope(
     raw: String?,
     command: BosCommand,
     format: OutputFormat
 ) -> DoctorScope {
-    guard let raw else { return .releaseInit }
+    guard let raw else { return .core }
     guard let scope = DoctorScope(rawValue: raw) else {
         fail(
-            message: "invalid --for '\(raw)'. expected one of: core, all, plan, apply, verify, release-init",
+            message: "invalid --for '\(raw)'. expected one of: core, all, plan, apply, verify, app-register, release-init, release-check, release-run",
             command: command,
             format: format
         )
@@ -767,16 +1031,63 @@ func parseDoctorScope(
     return scope
 }
 
-func detectToolchain(lock: ToolchainLockV2) throws -> DetectedToolchainV2 {
+func parseReleaseCheckMode(
+    raw: String?,
+    command: BosCommand,
+    format: OutputFormat
+) -> ReleaseCheckMode {
+    guard let raw else { return .readonlyCerts }
+    guard let mode = ReleaseCheckMode(rawValue: raw) else {
+        fail(
+            message: "invalid --mode '\(raw)'. expected one of: connectivity, readonly-certs, sync-certs",
+            command: command,
+            format: format
+        )
+    }
+    return mode
+}
+
+func parseReleaseRunStage(
+    raw: String?,
+    command: BosCommand,
+    format: OutputFormat
+) -> ReleaseRunStage {
+    guard let raw else { return .build }
+    guard let stage = ReleaseRunStage(rawValue: raw) else {
+        fail(
+            message: "invalid --stage '\(raw)'. expected one of: build, beta, release, submit",
+            command: command,
+            format: format
+        )
+    }
+    return stage
+}
+
+func detectXcodeSelectPath() -> String {
+    guard let result = try? runProcess(command: ["xcode-select", "-p"]),
+          result.status == 0 else { return "" }
+    return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+func detectToolchain(lock: ToolchainLock) throws -> DetectedToolchain {
     let swift = detectVersion(command: ["swift", "--version"])
     let tuist = detectVersion(command: ["tuist", "version"])
     let fastlane = detectVersion(command: ["fastlane", "--version"])
+    let git = detectVersion(command: ["git", "--version"])
     let env = ProcessInfo.processInfo.environment
-    let tma = try ToolchainLockV2.TMAPluginRef(
+    let tma = try ToolchainLock.TMAPluginRef(
         type: env["TMA_PLUGIN_REF_TYPE"] ?? lock.tmaPluginRef.type,
         value: env["TMA_PLUGIN_REF_VALUE"] ?? lock.tmaPluginRef.value
     )
-    return DetectedToolchainV2(swift: swift, tuist: tuist, fastlane: fastlane, tmaPluginRef: tma)
+    return DetectedToolchain(
+        swift: swift,
+        tuist: tuist,
+        fastlane: fastlane,
+        tmaPluginRef: tma,
+        xcodeSelectPath: detectXcodeSelectPath(),
+        brewPath: resolveBrewExecutable() ?? "",
+        gitVersion: git
+    )
 }
 
 func renderDoctorHuman(
@@ -843,6 +1154,10 @@ func performDoctorAutoInstall(
             attempts.append(contentsOf: installFastlaneWithBrew(projectRoot: projectRoot))
             continue
         }
+        if finding.tool == "tuist" {
+            attempts.append(contentsOf: installTuistWithBrew(projectRoot: projectRoot))
+            continue
+        }
 
         guard !finding.installCommands.isEmpty else {
             continue
@@ -852,6 +1167,7 @@ func performDoctorAutoInstall(
         for rawCommand in finding.installCommands {
             let tokens = tokenizeCommandLine(rawCommand)
             guard let executable = tokens.first else { continue }
+            guard executable != "sudo" else { continue }
             guard commandExists(executable) else { continue }
 
             attempted = true
@@ -917,10 +1233,26 @@ func runDoctor(args: [String], format: OutputFormat) {
     )
 
     let signingEnvironment: [String: String]
-    if scope.commands.contains(ToolchainLockV2.commandReleaseInit) {
+    if scope.commands.contains(ToolchainLock.commandAppRegister)
+        || scope.commands.contains(ToolchainLock.commandReleaseInit)
+        || scope.commands.contains(ToolchainLock.commandReleaseCheck)
+        || scope.commands.contains(ToolchainLock.commandReleaseRun) {
+        let profilePath = resolveProfilePathOrFail(
+            raw: nil,
+            projectRoot: projectRoot,
+            command: .doctor,
+            format: format
+        )
+        let profile: Profile
+        do {
+            profile = try decodeYAMLOrJSON(Profile.self, at: profilePath)
+        } catch {
+            fail(message: "\(error)", command: .doctor, format: format, exitCode: .doctorFailed)
+        }
         do {
             let resolved = try resolveSigningEnvironment(
                 projectRoot: projectRoot,
+                profile: profile,
                 processEnvironment: processEnvironment
             )
             signingEnvironment = resolved.environment
@@ -944,7 +1276,7 @@ func runDoctor(args: [String], format: OutputFormat) {
         lockPath = existingLockPath
     } else {
         let env = processEnvironment
-        let tma = try? ToolchainLockV2.TMAPluginRef(
+        let tma = try? ToolchainLock.TMAPluginRef(
             type: env["TMA_PLUGIN_REF_TYPE"] ?? "git-sha",
             value: env["TMA_PLUGIN_REF_VALUE"] ?? "unknown"
         )
@@ -956,9 +1288,9 @@ func runDoctor(args: [String], format: OutputFormat) {
             )
         }
 
-        let initialLock: ToolchainLockV2
+        let initialLock: ToolchainLock
         do {
-            initialLock = try ToolchainLockV2.defaultPolicy(tmaPluginRef: tma)
+            initialLock = try ToolchainLock.defaultPolicy(tmaPluginRef: tma)
             let encoded = try encodeYAML(initialLock)
             let destination = preferredToolchainLockPath(projectRoot: projectRoot)
             try writeTextFile(encoded, to: destination)
@@ -974,14 +1306,14 @@ func runDoctor(args: [String], format: OutputFormat) {
         }
     }
 
-    let lock: ToolchainLockV2
+    let lock: ToolchainLock
     do {
-        lock = try decodeToolchainLockV2WithCompatibility(at: lockPath)
+        lock = try decodeToolchainLock(at: lockPath)
     } catch {
         fail(message: "\(error)", command: .doctor, format: format)
     }
 
-    let initialDetected: DetectedToolchainV2
+    let initialDetected: DetectedToolchain
     do {
         initialDetected = try detectToolchain(lock: lock)
     } catch {
@@ -1107,9 +1439,9 @@ func planErrorMessage(_ error: PlanEngineError) -> String {
     case .missingEntities:
         return "entities not found. add `Entity: User` lines or numbered domain headings such as `11.1 Item`."
     case .missingAppIdentifier:
-        return "missing App Identifier. add `App Identifier: com.example.app` in documents or pass `--app-identifier com.example.app`."
+        return "missing App Identifier. add it to `.bos/config/profile.yaml` identity.appIdentifier, documents, or pass `--app-identifier com.example.app`."
     case .missingAppleTeamID:
-        return "missing Apple Team ID. add `Apple Team ID: ABCD123456` in documents or pass `--apple-team-id ABCD123456`."
+        return "missing Apple Team ID. add it to `.bos/config/profile.yaml` identity.appleTeamId, documents, or pass `--apple-team-id ABCD123456`."
     case .missingBundleIdPrefix:
         return "failed to derive bundle prefix. check `App Identifier` format (example: com.example.app)."
     }
@@ -1124,8 +1456,12 @@ func runPlan(args: [String], format: OutputFormat) {
             "--plan-dir",
             "--profile",
             "--out",
+            "--company-name",
+            "--app-name",
             "--app-identifier",
             "--apple-team-id",
+            "--primary-language",
+            "--sku",
             "--format"
         ],
         booleanFlags: []
@@ -1155,6 +1491,15 @@ func runPlan(args: [String], format: OutputFormat) {
     let outPath = resolvePath(outRaw, base: projectRoot)
 
     do {
+        let profile = try decodeYAMLOrJSON(Profile.self, at: profilePath)
+        let deriveOptions = PlanDeriveOptions(
+            appName: parsed.values["--app-name"] ?? profile.configuredAppName,
+            appIdentifier: parsed.values["--app-identifier"] ?? profile.configuredAppIdentifier,
+            appleTeamID: parsed.values["--apple-team-id"] ?? profile.configuredAppleTeamId,
+            companyName: parsed.values["--company-name"] ?? profile.configuredCompanyName,
+            primaryLanguage: parsed.values["--primary-language"] ?? profile.configuredPrimaryLanguage,
+            sku: parsed.values["--sku"] ?? profile.configuredSKU
+        )
         let prd: String
         if let prdRaw {
             let prdPath = resolvePath(prdRaw, base: projectRoot)
@@ -1162,10 +1507,6 @@ func runPlan(args: [String], format: OutputFormat) {
         } else if let planDirRaw {
             let planDirPath = resolvePath(planDirRaw, base: projectRoot)
             let corpus = try readPlanMarkdownCorpus(from: planDirPath)
-            let deriveOptions = PlanDeriveOptions(
-                appIdentifier: parsed.values["--app-identifier"],
-                appleTeamID: parsed.values["--apple-team-id"]
-            )
             prd = PlanEngine().derivePRD(fromPlanText: corpus, options: deriveOptions)
         } else {
             fail(
@@ -1175,8 +1516,7 @@ func runPlan(args: [String], format: OutputFormat) {
             )
         }
 
-        let profile = try decodeYAMLOrJSON(ProfileV1.self, at: profilePath)
-        let blueprint = try PlanEngine().generateBlueprint(prd: prd, profile: profile)
+        let blueprint = try PlanEngine().generateBlueprint(prd: prd, profile: profile, options: deriveOptions)
         let encoded = try encodeYAML(blueprint)
         try writeTextFile(encoded, to: outPath)
 
@@ -1220,11 +1560,14 @@ func runApply(args: [String], format: OutputFormat) {
     )
     assertOptionContract(parsed: parsed, command: .apply, format: format)
 
-    let blueprintRaw = parsed.values["--blueprint"] ?? ".bos/plan/blueprint.yaml"
-
     let cwd = currentWorkingDirectoryURL()
     let projectRoot = resolvePath(parsed.values["--project-root"] ?? ".", base: cwd)
-    let blueprintPath = resolvePath(blueprintRaw, base: projectRoot)
+    let blueprintPath = resolveBlueprintPathOrFail(
+        raw: parsed.values["--blueprint"],
+        projectRoot: projectRoot,
+        command: .apply,
+        format: format
+    )
     let profilePath = resolveProfilePathOrFail(
         raw: parsed.values["--profile"],
         projectRoot: projectRoot,
@@ -1246,8 +1589,8 @@ func runApply(args: [String], format: OutputFormat) {
     let appleTeamIdOverride = parsed.values["--apple-team-id"]
 
     do {
-        let blueprint = try decodeYAMLOrJSON(BlueprintV1.self, at: blueprintPath)
-        let profile = try decodeYAMLOrJSON(ProfileV1.self, at: profilePath)
+        let blueprint = try decodeYAMLOrJSON(Blueprint.self, at: blueprintPath)
+        let profile = try decodeYAMLOrJSON(Profile.self, at: profilePath)
         let engine = ApplyEngine()
 
         if dryRun {
@@ -1359,7 +1702,7 @@ func runVerify(args: [String], format: OutputFormat) {
     )
 
     do {
-        let profile = try decodeYAMLOrJSON(ProfileV1.self, at: profilePath)
+        let profile = try decodeYAMLOrJSON(Profile.self, at: profilePath)
         let engine = VerifyEngine(runner: ProcessVerifyRunner())
         let result = try engine.verify(request: VerifyRequest(projectRoot: projectRoot, profile: profile))
         switch format {
@@ -1397,6 +1740,169 @@ func runVerify(args: [String], format: OutputFormat) {
     }
 }
 
+func runAppRegister(args: [String], format: OutputFormat) {
+    let parsed = parseOptions(
+        args: args,
+        valueFlags: [
+            "--project-root",
+            "--profile",
+            "--blueprint",
+            "--company-name",
+            "--app-name",
+            "--app-identifier",
+            "--apple-team-id",
+            "--primary-language",
+            "--sku",
+            "--match-git-url",
+            "--format"
+        ],
+        booleanFlags: []
+    )
+    assertOptionContract(parsed: parsed, command: .appRegister, format: format)
+
+    let cwd = currentWorkingDirectoryURL()
+    let projectRoot = resolvePath(parsed.values["--project-root"] ?? ".", base: cwd)
+    let profilePath = resolveProfilePathOrFail(
+        raw: parsed.values["--profile"],
+        projectRoot: projectRoot,
+        command: .appRegister,
+        format: format
+    )
+
+    let profile: Profile
+    do {
+        profile = try decodeYAMLOrJSON(Profile.self, at: profilePath)
+    } catch {
+        fail(message: "\(error)", command: .appRegister, format: format)
+    }
+
+    let blueprint: Blueprint?
+    do {
+        if let blueprintPath = resolveOptionalBlueprintPath(
+            raw: parsed.values["--blueprint"],
+            projectRoot: projectRoot
+        ) {
+            blueprint = try decodeYAMLOrJSON(Blueprint.self, at: blueprintPath)
+        } else {
+            blueprint = nil
+        }
+    } catch {
+        fail(message: "\(error)", command: .appRegister, format: format)
+    }
+
+    let signingContext: (environment: [String: String], note: String?)
+    do {
+        signingContext = try resolveSigningEnvironment(
+            projectRoot: projectRoot,
+            processEnvironment: ProcessInfo.processInfo.environment
+        )
+    } catch {
+        fail(
+            message: signingEnvironmentLoadErrorMessage(error, projectRoot: projectRoot),
+            command: .appRegister,
+            format: format,
+            exitCode: .appRegisterFailed
+        )
+    }
+
+    do {
+        let overrides = AppRegistrationOverrides(
+            companyName: parsed.values["--company-name"],
+            appName: parsed.values["--app-name"],
+            appIdentifier: parsed.values["--app-identifier"],
+            appleTeamId: parsed.values["--apple-team-id"],
+            primaryLanguage: parsed.values["--primary-language"],
+            sku: parsed.values["--sku"],
+            matchGitURL: parsed.values["--match-git-url"]
+        )
+        let result = try AppRegistrationEngine().register(
+            request: AppRegistrationRequest(
+                projectRoot: projectRoot,
+                profile: profile,
+                blueprint: blueprint,
+                overrides: overrides,
+                environment: signingContext.environment
+            )
+        )
+
+        let encodedProfile = try encodeYAML(result.syncedProfile)
+        try writeTextFile(encodedProfile, to: profilePath)
+
+        let summaryBase = "app-register completed (\(result.bundleIdStatus.rawValue), \(result.appStatus.rawValue))"
+        let summary = signingContext.note.map { "\($0). \(summaryBase)" } ?? summaryBase
+        let artifacts = result.artifacts + [profilePath.path(percentEncoded: false)]
+        switch format {
+        case .human:
+            renderHumanSuccess(summary: summary, artifacts: artifacts)
+        case .json:
+            printAppRegisterJSONPayload(
+                status: "success",
+                exitCode: Int(ExitCode.success.rawValue),
+                summary: summary,
+                metadata: result.metadata,
+                bundleIdStatus: result.bundleIdStatus,
+                appStatus: result.appStatus,
+                artifacts: artifacts
+            )
+        }
+        exit(ExitCode.success.rawValue)
+    } catch let error as AppRegistrationEngineError {
+        let summary: String
+        switch error {
+        case .missingRequiredFields(let fields):
+            summary = "missing required fields: \(fields.joined(separator: ", ")). add them to `.bos/config/profile.yaml` or pass flags."
+        case .invalidValue(let field, let reason):
+            summary = "\(field): \(reason)"
+        case .invalidEnvironment(let missingKeys, let invalidIssues):
+            let path = defaultSigningEnvironmentPath(projectRoot: projectRoot).path(percentEncoded: false)
+            let parts = [
+                missingKeys.isEmpty ? nil : "missing=\(missingKeys.joined(separator: ","))",
+                invalidIssues.isEmpty ? nil : "invalid=\(invalidIssues.joined(separator: ","))"
+            ].compactMap { $0 }
+            summary = "invalid App Store Connect environment: \(parts.joined(separator: " ")). check \(path)"
+        case .providerFailure(let providerSummary, let artifacts):
+            switch format {
+            case .human:
+                fputs("error: \(providerSummary)\n", stderr)
+            case .json:
+                printAppRegisterJSONPayload(
+                    status: "failed",
+                    exitCode: Int(ExitCode.appRegisterFailed.rawValue),
+                    summary: providerSummary,
+                    metadata: nil,
+                    bundleIdStatus: nil,
+                    appStatus: nil,
+                    artifacts: artifacts
+                )
+            }
+            exit(ExitCode.appRegisterFailed.rawValue)
+        }
+
+        switch format {
+        case .human:
+            fputs("error: \(summary)\n", stderr)
+        case .json:
+            printAppRegisterJSONPayload(
+                status: "failed",
+                exitCode: Int(ExitCode.appRegisterFailed.rawValue),
+                summary: summary,
+                metadata: nil,
+                bundleIdStatus: nil,
+                appStatus: nil,
+                artifacts: []
+            )
+        }
+        exit(ExitCode.appRegisterFailed.rawValue)
+    } catch {
+        fail(
+            message: "\(error)",
+            command: .appRegister,
+            format: format,
+            exitCode: .appRegisterFailed
+        )
+    }
+}
+
 func runReleaseInit(args: [String], format: OutputFormat) {
     let parsed = parseOptions(
         args: args,
@@ -1405,11 +1911,14 @@ func runReleaseInit(args: [String], format: OutputFormat) {
     )
     assertOptionContract(parsed: parsed, command: .releaseInit, format: format)
 
-    let blueprintRaw = parsed.values["--blueprint"] ?? ".bos/plan/blueprint.yaml"
-
     let cwd = currentWorkingDirectoryURL()
     let projectRoot = resolvePath(parsed.values["--project-root"] ?? ".", base: cwd)
-    let blueprintPath = resolvePath(blueprintRaw, base: projectRoot)
+    let blueprintPath = resolveBlueprintPathOrFail(
+        raw: parsed.values["--blueprint"],
+        projectRoot: projectRoot,
+        command: .releaseInit,
+        format: format
+    )
     let profilePath = resolveProfilePathOrFail(
         raw: parsed.values["--profile"],
         projectRoot: projectRoot,
@@ -1417,10 +1926,18 @@ func runReleaseInit(args: [String], format: OutputFormat) {
         format: format
     )
 
+    let profile: Profile
+    do {
+        profile = try decodeYAMLOrJSON(Profile.self, at: profilePath)
+    } catch {
+        fail(message: "\(error)", command: .releaseInit, format: format)
+    }
+
     let signingContext: (environment: [String: String], note: String?)
     do {
         signingContext = try resolveSigningEnvironment(
             projectRoot: projectRoot,
+            profile: profile,
             processEnvironment: ProcessInfo.processInfo.environment
         )
     } catch {
@@ -1433,8 +1950,7 @@ func runReleaseInit(args: [String], format: OutputFormat) {
     }
 
     do {
-        let blueprint = try decodeYAMLOrJSON(BlueprintV1.self, at: blueprintPath)
-        let profile = try decodeYAMLOrJSON(ProfileV1.self, at: profilePath)
+        let blueprint = try decodeYAMLOrJSON(Blueprint.self, at: blueprintPath)
         let result = try ReleaseInitEngine().releaseInit(
             request: ReleaseInitRequest(
                 projectRoot: projectRoot,
@@ -1492,6 +2008,247 @@ func runReleaseInit(args: [String], format: OutputFormat) {
     }
 }
 
+func runReleaseCheck(args: [String], format: OutputFormat) {
+    let parsed = parseOptions(
+        args: args,
+        valueFlags: ["--project-root", "--profile", "--mode", "--format"],
+        booleanFlags: ["--allow-write"]
+    )
+    assertOptionContract(parsed: parsed, command: .releaseCheck, format: format)
+
+    let cwd = currentWorkingDirectoryURL()
+    let projectRoot = resolvePath(parsed.values["--project-root"] ?? ".", base: cwd)
+    let profilePath = resolveProfilePathOrFail(
+        raw: parsed.values["--profile"],
+        projectRoot: projectRoot,
+        command: .releaseCheck,
+        format: format
+    )
+    let mode = parseReleaseCheckMode(
+        raw: parsed.values["--mode"],
+        command: .releaseCheck,
+        format: format
+    )
+    let allowWrite = parsed.flags.contains("--allow-write")
+
+    if mode == .syncCerts && !allowWrite {
+        fail(
+            message: "`--mode sync-certs` requires explicit `--allow-write`",
+            command: .releaseCheck,
+            format: format
+        )
+    }
+    if allowWrite && mode != .syncCerts {
+        fail(
+            message: "`--allow-write` is only valid with `--mode sync-certs`",
+            command: .releaseCheck,
+            format: format
+        )
+    }
+
+    let profile: Profile
+    do {
+        profile = try decodeYAMLOrJSON(Profile.self, at: profilePath)
+    } catch {
+        fail(message: "\(error)", command: .releaseCheck, format: format)
+    }
+
+    let signingContext: (environment: [String: String], note: String?)
+    do {
+        signingContext = try resolveSigningEnvironment(
+            projectRoot: projectRoot,
+            profile: profile,
+            processEnvironment: ProcessInfo.processInfo.environment
+        )
+    } catch {
+        fail(
+            message: signingEnvironmentLoadErrorMessage(error, projectRoot: projectRoot),
+            command: .releaseCheck,
+            format: format,
+            exitCode: .releaseCheckFailed
+        )
+    }
+
+    do {
+        let result = try ReleaseCheckEngine(
+            runner: ProcessReleaseCheckRunner()
+        ).releaseCheck(
+            request: ReleaseCheckRequest(
+                projectRoot: projectRoot,
+                profile: profile,
+                environment: signingContext.environment,
+                mode: mode
+            )
+        )
+
+        let summary: String
+        if let note = signingContext.note {
+            summary = "\(note). \(result.summary)"
+        } else {
+            summary = result.summary
+        }
+
+        switch format {
+        case .human:
+            renderHumanSuccess(summary: summary, artifacts: result.artifacts)
+        case .json:
+            printReleaseCheckJSONPayload(
+                status: "success",
+                exitCode: Int(ExitCode.success.rawValue),
+                summary: summary,
+                mode: result.mode,
+                failureCode: nil,
+                failedStep: nil,
+                artifacts: result.artifacts
+            )
+        }
+        exit(ExitCode.success.rawValue)
+    } catch let error as ReleaseCheckEngineError {
+        switch error {
+        case .failed(let classification, let step, let summary, _, let artifacts):
+            switch format {
+            case .human:
+                fputs("error: \(summary)\n", stderr)
+            case .json:
+                printReleaseCheckJSONPayload(
+                    status: "failed",
+                    exitCode: Int(ExitCode.releaseCheckFailed.rawValue),
+                    summary: summary,
+                    mode: mode,
+                    failureCode: classification,
+                    failedStep: step,
+                    artifacts: artifacts
+                )
+            }
+            exit(ExitCode.releaseCheckFailed.rawValue)
+        }
+    } catch {
+        fail(
+            message: "\(error)",
+            command: .releaseCheck,
+            format: format,
+            exitCode: .releaseCheckFailed
+        )
+    }
+}
+
+func runReleaseRun(args: [String], format: OutputFormat) {
+    let parsed = parseOptions(
+        args: args,
+        valueFlags: ["--project-root", "--blueprint", "--profile", "--stage", "--format"],
+        booleanFlags: ["--allow-signing-write"]
+    )
+    assertOptionContract(parsed: parsed, command: .releaseRun, format: format)
+
+    let cwd = currentWorkingDirectoryURL()
+    let projectRoot = resolvePath(parsed.values["--project-root"] ?? ".", base: cwd)
+    let blueprintPath = resolveBlueprintPathOrFail(
+        raw: parsed.values["--blueprint"],
+        projectRoot: projectRoot,
+        command: .releaseRun,
+        format: format
+    )
+    let profilePath = resolveProfilePathOrFail(
+        raw: parsed.values["--profile"],
+        projectRoot: projectRoot,
+        command: .releaseRun,
+        format: format
+    )
+    let stage = parseReleaseRunStage(
+        raw: parsed.values["--stage"],
+        command: .releaseRun,
+        format: format
+    )
+    let allowSigningWrite = parsed.flags.contains("--allow-signing-write")
+
+    let profile: Profile
+    let blueprint: Blueprint
+    do {
+        profile = try decodeYAMLOrJSON(Profile.self, at: profilePath)
+        blueprint = try decodeYAMLOrJSON(Blueprint.self, at: blueprintPath)
+    } catch {
+        fail(message: "\(error)", command: .releaseRun, format: format)
+    }
+
+    let signingContext: (environment: [String: String], note: String?)
+    do {
+        signingContext = try resolveSigningEnvironment(
+            projectRoot: projectRoot,
+            profile: profile,
+            processEnvironment: ProcessInfo.processInfo.environment
+        )
+    } catch {
+        fail(
+            message: signingEnvironmentLoadErrorMessage(error, projectRoot: projectRoot),
+            command: .releaseRun,
+            format: format,
+            exitCode: .releaseRunFailed
+        )
+    }
+
+    do {
+        let releaseChecker = ReleaseCheckEngine(runner: ProcessReleaseCheckRunner())
+        let result = try ReleaseRunEngine(
+            runner: ProcessReleaseRunRunner(),
+            releaseChecker: releaseChecker
+        ).run(
+            request: ReleaseRunRequest(
+                projectRoot: projectRoot,
+                blueprint: blueprint,
+                profile: profile,
+                environment: signingContext.environment,
+                stage: stage,
+                allowSigningWrite: allowSigningWrite
+            )
+        )
+
+        let summary = signingContext.note.map { "\($0). \(result.summary)" } ?? result.summary
+        switch format {
+        case .human:
+            renderHumanSuccess(summary: summary, artifacts: result.artifacts)
+        case .json:
+            printReleaseRunJSONPayload(
+                status: "success",
+                exitCode: Int(ExitCode.success.rawValue),
+                summary: summary,
+                stage: result.stage,
+                failureCode: nil,
+                failedStep: nil,
+                ipaPath: result.ipaPath,
+                artifacts: result.artifacts
+            )
+        }
+        exit(ExitCode.success.rawValue)
+    } catch let error as ReleaseRunEngineError {
+        switch error {
+        case .failed(let classification, let step, let summary, _, let artifacts):
+            switch format {
+            case .human:
+                fputs("error: \(summary)\n", stderr)
+            case .json:
+                printReleaseRunJSONPayload(
+                    status: "failed",
+                    exitCode: Int(ExitCode.releaseRunFailed.rawValue),
+                    summary: summary,
+                    stage: stage,
+                    failureCode: classification,
+                    failedStep: step,
+                    ipaPath: artifacts.first(where: { $0.hasSuffix(".ipa") }),
+                    artifacts: artifacts
+                )
+            }
+            exit(ExitCode.releaseRunFailed.rawValue)
+        }
+    } catch {
+        fail(
+            message: "\(error)",
+            command: .releaseRun,
+            format: format,
+            exitCode: .releaseRunFailed
+        )
+    }
+}
+
 func run() {
     let args = Array(CommandLine.arguments.dropFirst())
     let outputFormat = parseOutputFormat(from: args)
@@ -1529,8 +2286,14 @@ func run() {
         runApply(args: rest, format: outputFormat)
     case .verify:
         runVerify(args: rest, format: outputFormat)
+    case .appRegister:
+        runAppRegister(args: rest, format: outputFormat)
     case .releaseInit:
         runReleaseInit(args: rest, format: outputFormat)
+    case .releaseCheck:
+        runReleaseCheck(args: rest, format: outputFormat)
+    case .releaseRun:
+        runReleaseRun(args: rest, format: outputFormat)
     }
 }
 

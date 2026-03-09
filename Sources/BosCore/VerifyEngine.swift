@@ -18,9 +18,9 @@ public struct VerifyCommandResult: Sendable, Equatable {
 
 public struct VerifyRequest: Sendable {
     public let projectRoot: URL
-    public let profile: ProfileV1
+    public let profile: Profile
 
-    public init(projectRoot: URL, profile: ProfileV1) {
+    public init(projectRoot: URL, profile: Profile) {
         self.projectRoot = projectRoot
         self.profile = profile
     }
@@ -54,7 +54,7 @@ public enum VerifyEngineError: Error, Equatable {
     case commandFailed(classification: VerifyFailureCode, step: VerifyStep, exitCode: Int32, artifacts: [String])
 }
 
-public struct VerifyEngine {
+public struct VerifyEngine: Sendable {
     private let runner: any VerifyCommandRunning
     private let simulatorDestinationResolver: @Sendable () -> String?
 
@@ -68,7 +68,7 @@ public struct VerifyEngine {
 
     public func verify(request: VerifyRequest) throws -> VerifyResult {
         let root = request.projectRoot.standardizedFileURL
-        defer { try? cleanupGeneratedProjectArtifacts(at: root) }
+        defer { ProjectBuildSupport.cleanupGeneratedProjectArtifacts(at: root) }
 
         let policy = verifyPolicy(for: request.profile, projectRoot: root)
         let testDestination = simulatorDestinationResolver()
@@ -100,7 +100,7 @@ public struct VerifyEngine {
                 result = VerifyCommandResult(exitCode: 127, stderr: "runner-error: \(error)")
             }
 
-            appendLog(lines: &logLines, step: step, result: result)
+            logLines += logEntry(for: step, result: result)
 
             if result.exitCode != 0 {
                 let summary = "Verify failed at \(step.kind.rawValue) (\(step.classification.rawValue))"
@@ -172,50 +172,33 @@ extension VerifyEngine {
         let artifacts: [String]
     }
 
-    private func verifyPolicy(for profile: ProfileV1, projectRoot: URL) -> VerifyPolicy {
-        let buildScheme = resolveBuildScheme(projectRoot: projectRoot, profile: profile)
+    private func verifyPolicy(for profile: Profile, projectRoot: URL) -> VerifyPolicy {
+        let buildScheme = ProjectBuildSupport.resolveBuildScheme(
+            projectRoot: projectRoot,
+            profileName: profile.name
+        )
         return VerifyPolicy(buildScheme: buildScheme)
     }
 
-    private func resolveBuildScheme(projectRoot: URL, profile: ProfileV1) -> String {
-        let appProjectPath = projectRoot.appending(path: "Projects/App/Project.swift")
-        if let appScheme = readAppScheme(from: appProjectPath) {
-            return appScheme
-        }
-        return "\(sanitizeModuleName(profile.name))App"
-    }
-
-    private func readAppScheme(from projectFile: URL) -> String? {
-        guard let text = try? String(contentsOf: projectFile, encoding: .utf8) else {
-            return nil
-        }
-        let pattern = #"let\s+appName\s*=\s*"([^"]+)""#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return nil
-        }
-        let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
-        guard let match = regex.firstMatch(in: text, range: fullRange),
-              match.numberOfRanges > 1,
-              let nameRange = Range(match.range(at: 1), in: text) else {
-            return nil
-        }
-        let name = String(text[nameRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? nil : name
-    }
-
-    private func sanitizeModuleName(_ raw: String) -> String {
-        NameNormalizer.pascalCase(raw, fallback: "App")
-    }
-
     private func makeSteps(policy: VerifyPolicy, testDestination: String?) -> [StepSpec] {
+        let signingOverrides = [
+            "CODE_SIGNING_ALLOWED=NO",
+            "CODE_SIGNING_REQUIRED=NO"
+        ]
+
         var testCommand = ["xcodebuild", "test", "-scheme", policy.buildScheme]
         if let testDestination, !testDestination.isEmpty {
             testCommand.append(contentsOf: ["-destination", testDestination])
         }
+        testCommand.append(contentsOf: signingOverrides)
         return [
             StepSpec(kind: .tuistInstall, classification: .toolchain, command: ["tuist", "install"]),
             StepSpec(kind: .tuistGenerate, classification: .generation, command: ["tuist", "generate", "--no-open"]),
-            StepSpec(kind: .xcodebuildBuild, classification: .build, command: ["xcodebuild", "build", "-scheme", policy.buildScheme]),
+            StepSpec(
+                kind: .xcodebuildBuild,
+                classification: .build,
+                command: ["xcodebuild", "build", "-scheme", policy.buildScheme] + signingOverrides
+            ),
             StepSpec(kind: .xcodebuildTest, classification: .test, command: testCommand)
         ]
     }
@@ -272,65 +255,20 @@ extension VerifyEngine {
         guard let selected = candidates.first else { return nil }
         return "id=\(selected.udid)"
     }
-
-    private func cleanupGeneratedProjectArtifacts(at root: URL) throws {
-        let fm = FileManager.default
-
-        let topLevel = try fm.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-        for item in topLevel {
-            let name = item.lastPathComponent
-            if item.pathExtension == "xcworkspace" || name.hasPrefix("TemporaryDirectory.") {
-                try? fm.removeItem(at: item)
-            }
-            if name == "swift-generated-sources" || (name.hasPrefix("_") && name.hasSuffix(".lock")) {
-                try? fm.removeItem(at: item)
-            }
-        }
-
-        let projectsRoot = root.appending(path: "Projects")
-        if fm.fileExists(atPath: projectsRoot.path(percentEncoded: false)),
-           let enumerator = fm.enumerator(
-               at: projectsRoot,
-               includingPropertiesForKeys: nil,
-               options: [.skipsHiddenFiles]
-           ) {
-            for case let url as URL in enumerator {
-                let name = url.lastPathComponent
-                if url.pathExtension == "xcodeproj" || name == "Derived" {
-                    try? fm.removeItem(at: url)
-                    enumerator.skipDescendants()
-                }
-            }
-        }
-
-        let tuistBuild = root.appending(path: "Tuist/.build")
-        if fm.fileExists(atPath: tuistBuild.path(percentEncoded: false)) {
-            try? fm.removeItem(at: tuistBuild)
-        }
-
-        let tuistResolved = root.appending(path: "Tuist/Package.resolved")
-        if fm.fileExists(atPath: tuistResolved.path(percentEncoded: false)) {
-            try? fm.removeItem(at: tuistResolved)
-        }
-    }
-
-    private func appendLog(lines: inout [String], step: StepSpec, result: VerifyCommandResult) {
-        lines.append("[\(RuntimeSupport.isoNow())] step=\(step.kind.rawValue)")
-        lines.append("$ \(step.command.joined(separator: " "))")
-        lines.append("exit=\(result.exitCode)")
+    private func logEntry(for step: StepSpec, result: VerifyCommandResult) -> [String] {
+        var lines = [
+            "[\(RuntimeSupport.isoNow())] step=\(step.kind.rawValue)",
+            "$ \(step.command.joined(separator: " "))",
+            "exit=\(result.exitCode)"
+        ]
         if !result.stdout.isEmpty {
-            lines.append("stdout:")
-            lines.append(result.stdout)
+            lines += ["stdout:", result.stdout]
         }
         if !result.stderr.isEmpty {
-            lines.append("stderr:")
-            lines.append(result.stderr)
+            lines += ["stderr:", result.stderr]
         }
         lines.append("")
+        return lines
     }
 
     private func writeArtifact(

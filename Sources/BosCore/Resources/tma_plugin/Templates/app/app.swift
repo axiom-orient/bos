@@ -3,6 +3,7 @@ import ProjectDescription
 private let appNameAttribute: Template.Attribute = .required("name")
 private let appOrganizationAttribute: Template.Attribute = .optional("organizationName", default: "axient")
 private let appBundleIdAttribute: Template.Attribute = .optional("bundleIdPrefix", default: "com.example")
+private let appIdentifierAttribute: Template.Attribute = .optional("appIdentifier", default: "")
 private let appTeamAttribute: Template.Attribute = .optional("teamId", default: "")
 private let appDeploymentTargetAttribute: Template.Attribute = .optional("deploymentTarget", default: "17.0")
 private let appRootFeatureAttribute: Template.Attribute = .optional("rootFeatureName", default: "Root")
@@ -13,6 +14,7 @@ let templateApp = Template(
         appNameAttribute,
         appOrganizationAttribute,
         appBundleIdAttribute,
+        appIdentifierAttribute,
         appTeamAttribute,
         appDeploymentTargetAttribute,
         appRootFeatureAttribute

@@ -12,13 +12,16 @@ struct CLIJsonOutputIntegrationTests {
             ("plan", ["plan", "--prd", "--format", "json"]),
             ("apply", ["apply", "--blueprint", "--format", "json"]),
             ("verify", ["verify", "--project-root", "--format", "json"]),
-            ("release-init", ["release-init", "--blueprint", "--format", "json"])
+            ("app-register", ["app-register", "--app-name", "--format", "json"]),
+            ("release-init", ["release-init", "--blueprint", "--format", "json"]),
+            ("release-check", ["release-check", "--project-root", "--mode", "--format", "json"]),
+            ("release-run", ["release-run", "--stage", "--format", "json"])
         ]
 
         for item in cases {
             let result = try runBootstrap(args: item.args, timeoutSeconds: 10)
             #expect(result.status == 2, "unexpected exit for command=\(item.command)")
-            let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(result.stdout.utf8))
+            let payload = try JSONDecoder().decode(CommandOutput.self, from: Data(result.stdout.utf8))
             #expect(payload.command == item.command)
             #expect(payload.status == "failed")
             #expect(payload.exitCode == 2)
@@ -28,7 +31,7 @@ struct CLIJsonOutputIntegrationTests {
     @Test func doctorRejectsLegacyInstallFlag() throws {
         let result = try runBootstrap(args: ["doctor", "--install", "--format", "json"], timeoutSeconds: 10)
         #expect(result.status == 2)
-        let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(result.stdout.utf8))
+        let payload = try JSONDecoder().decode(CommandOutput.self, from: Data(result.stdout.utf8))
         #expect(payload.command == "doctor")
         #expect(payload.status == "failed")
         #expect(payload.exitCode == 2)
@@ -53,11 +56,59 @@ struct CLIJsonOutputIntegrationTests {
         )
         #expect(result.status == 4)
 
-        let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(result.stdout.utf8))
+        let payload = try JSONDecoder().decode(CommandOutput.self, from: Data(result.stdout.utf8))
         #expect(payload.command == "verify")
         #expect(payload.status == "failed")
         #expect(payload.exitCode == 4)
         #expect(payload.summary.contains("verify failed at"))
+    }
+
+    @Test func releaseCheckRejectsWriteModeWithoutExplicitAllowWrite() throws {
+        let result = try runBootstrap(
+            args: ["release-check", "--mode", "sync-certs", "--format", "json"],
+            timeoutSeconds: 10
+        )
+        #expect(result.status == 2)
+
+        let payload = try JSONDecoder().decode(CommandOutput.self, from: Data(result.stdout.utf8))
+        #expect(payload.command == "release-check")
+        #expect(payload.status == "failed")
+        #expect(payload.exitCode == 2)
+        #expect(payload.summary.contains("requires explicit `--allow-write`"))
+    }
+
+    @Test func releaseCheckReturnsParseableJSONOnExecutionFailure() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeReleaseCheckScaffold(root: root)
+
+        let result = try runBootstrap(
+            args: [
+                "release-check",
+                "--project-root", root.path(percentEncoded: false),
+                "--mode", "connectivity",
+                "--format", "json"
+            ],
+            cwd: root,
+            environment: [
+                "PATH": "/nonexistent",
+                "ASC_ISSUER_ID": "123E4567-E89B-12D3-A456-426614174000",
+                "ASC_KEY_ID": "AB12CD34EF",
+                "ASC_KEY_P8_BASE64": "c3VwZXItc2VjcmV0",
+                "MATCH_GIT_URL": "git@github.com:org/certs.git",
+                "MATCH_PASSWORD": "match-secret"
+            ],
+            timeoutSeconds: 20
+        )
+        #expect(result.status == 7)
+
+        let payload = try JSONDecoder().decode(ReleaseCheckPayload.self, from: Data(result.stdout.utf8))
+        #expect(payload.command == "release-check")
+        #expect(payload.status == "failed")
+        #expect(payload.exitCode == 7)
+        #expect(payload.mode == "connectivity")
+        #expect(payload.failureCode == "E-MATCH-REPO")
+        #expect(payload.failedStep == "match-repo")
     }
 
     @Test func releaseInitReturnsParseableJSONOnInvalidEnvironmentFormat() throws {
@@ -111,7 +162,7 @@ struct CLIJsonOutputIntegrationTests {
         )
         #expect(releaseInitResult.status == 5)
 
-        let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(releaseInitResult.stdout.utf8))
+        let payload = try JSONDecoder().decode(CommandOutput.self, from: Data(releaseInitResult.stdout.utf8))
         #expect(payload.command == "release-init")
         #expect(payload.status == "failed")
         #expect(payload.exitCode == 5)
@@ -181,6 +232,195 @@ struct CLIJsonOutputIntegrationTests {
             ]
         )
         #expect(releaseInitResult.status == 0)
+    }
+
+    @Test func releaseInitFallsBackToConfigBlueprintWhenPlanBlueprintIsMissing() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let blueprint = root.appending(path: "config/blueprint.yaml")
+        let profile = root.appending(path: ".bos/config/profile.yaml")
+
+        try FileManager.default.createDirectory(at: blueprint.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: profile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(
+            """
+            schemaVersion: 1
+            project:
+              name: Daycraft
+              bundleIdPrefix: com.axiomorient
+              deploymentTarget: "18.0"
+            requirements:
+              reqIds: [REQ-001]
+              screens: [SCR_TODAY_HOME]
+            modules:
+              app:
+                name: Daycraft
+              features: [Root]
+              domains: [User]
+              services: [UserService]
+              shared: [Core, DesignSystem]
+            wiring:
+              rootFeature: Root
+            release:
+              fastlane:
+                appIdentifier: com.axiomorient.daycraft
+                appleTeamId: A1B2C3D4E5
+                appName: Daycraft
+                sku: axiom-orient.daycraft.04805b02
+                primaryLanguage: en-US
+                companyName: Axiom Orient
+            """.utf8
+        ).write(to: blueprint, options: .atomic)
+        try Data(defaultProfileYAML().utf8).write(to: profile, options: .atomic)
+
+        let result = try runBootstrap(
+            args: [
+                "release-init",
+                "--project-root", root.path(percentEncoded: false),
+                "--format", "json"
+            ],
+            cwd: root,
+            environment: [
+                "ASC_ISSUER_ID": "123E4567-E89B-12D3-A456-426614174000",
+                "ASC_KEY_ID": "AB12CD34EF",
+                "ASC_KEY_P8_BASE64": "c3VwZXItc2VjcmV0",
+                "MATCH_GIT_URL": "git@github.com:org/certs.git",
+                "MATCH_PASSWORD": "secret"
+            ]
+        )
+
+        #expect(result.status == 0)
+        let payload = try JSONDecoder().decode(CommandOutput.self, from: Data(result.stdout.utf8))
+        #expect(payload.command == "release-init")
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "fastlane/Fastfile").path(percentEncoded: false)))
+    }
+
+    @Test func appRegisterFallsBackToConfigBlueprintWhenProfileOmitsIdentity() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let blueprint = root.appending(path: "config/blueprint.yaml")
+        let profile = root.appending(path: ".bos/config/profile.yaml")
+
+        try FileManager.default.createDirectory(at: blueprint.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: profile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(
+            """
+            schemaVersion: 1
+            project:
+              name: Daycraft
+              bundleIdPrefix: com.axiomorient
+              deploymentTarget: "18.0"
+            requirements:
+              reqIds: [REQ-001]
+              screens: [SCR_TODAY_HOME]
+            modules:
+              app:
+                name: Daycraft
+              features: [Root]
+              domains: [User]
+              services: [UserService]
+              shared: [Core, DesignSystem]
+            wiring:
+              rootFeature: Root
+            release:
+              fastlane:
+                appIdentifier: com.axiomorient.daycraft
+                appleTeamId: A1B2C3D4E5
+                appName: Daycraft
+                primaryLanguage: en-US
+            """.utf8
+        ).write(to: blueprint, options: .atomic)
+        try Data(defaultProfileYAML().utf8).write(to: profile, options: .atomic)
+
+        let result = try runBootstrap(
+            args: [
+                "app-register",
+                "--project-root", root.path(percentEncoded: false),
+                "--format", "json"
+            ],
+            cwd: root,
+            environment: [
+                "ASC_ISSUER_ID": "123E4567-E89B-12D3-A456-426614174000",
+                "ASC_KEY_ID": "bad",
+                "ASC_KEY_P8_BASE64": "not-base64"
+            ]
+        )
+
+        #expect(result.status == 8)
+        let payload = try JSONDecoder().decode(AppRegisterPayload.self, from: Data(result.stdout.utf8))
+        #expect(payload.command == "app-register")
+        #expect(payload.summary.contains("invalid App Store Connect environment"))
+        #expect(!payload.summary.contains("missing required fields"))
+    }
+
+    @Test func releaseRunReturnsParseableJSONOnExecutionFailure() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let blueprint = root.appending(path: "config/blueprint.yaml")
+        let profile = root.appending(path: ".bos/config/profile.yaml")
+
+        try FileManager.default.createDirectory(at: blueprint.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: profile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(
+            """
+            schemaVersion: 1
+            project:
+              name: Daycraft
+              bundleIdPrefix: com.axiomorient
+              deploymentTarget: "18.0"
+            requirements:
+              reqIds: [REQ-001]
+              screens: [SCR_TODAY_HOME]
+            modules:
+              app:
+                name: Daycraft
+              features: [Root]
+              domains: [User]
+              services: [UserService]
+              shared: [Core, DesignSystem]
+            wiring:
+              rootFeature: Root
+            release:
+              fastlane:
+                appIdentifier: com.axiomorient.daycraft
+                appleTeamId: A1B2C3D4E5
+                appName: Daycraft
+                sku: axiom-orient.daycraft.04805b02
+                primaryLanguage: en-US
+            """.utf8
+        ).write(to: blueprint, options: .atomic)
+        try Data(defaultProfileYAML().utf8).write(to: profile, options: .atomic)
+
+        let result = try runBootstrap(
+            args: [
+                "release-run",
+                "--project-root", root.path(percentEncoded: false),
+                "--stage", "build",
+                "--format", "json"
+            ],
+            cwd: root,
+            environment: [
+                "PATH": "/nonexistent",
+                "ASC_ISSUER_ID": "123E4567-E89B-12D3-A456-426614174000",
+                "ASC_KEY_ID": "AB12CD34EF",
+                "ASC_KEY_P8_BASE64": "c3VwZXItc2VjcmV0",
+                "MATCH_GIT_URL": "git@github.com:org/certs.git",
+                "MATCH_PASSWORD": "match-secret"
+            ],
+            timeoutSeconds: 20
+        )
+
+        #expect(result.status == 9)
+        let payload = try JSONDecoder().decode(ReleaseRunPayload.self, from: Data(result.stdout.utf8))
+        #expect(payload.command == "release-run")
+        #expect(payload.status == "failed")
+        #expect(payload.exitCode == 9)
+        #expect(payload.stage == "build")
+        #expect(payload.failureCode == "E-PREFLIGHT")
+        #expect(payload.failedStep == "release-check")
     }
 
     @Test func planSupportsPlanDirectoryInputWithMetadataOverrides() throws {
@@ -274,7 +514,8 @@ struct CLIJsonOutputIntegrationTests {
                 "--mode", "init",
                 "--format", "json"
             ],
-            cwd: root
+            cwd: root,
+            timeoutSeconds: 300
         )
         #expect(applyResult.status == 0)
 
@@ -359,7 +600,7 @@ struct CLIJsonOutputIntegrationTests {
             cwd: root
         )
         #expect(planResult.status == 0)
-        let planPayload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(planResult.stdout.utf8))
+        let planPayload = try JSONDecoder().decode(CommandOutput.self, from: Data(planResult.stdout.utf8))
         #expect(planPayload.command == "plan")
         #expect(planPayload.status == "success")
         #expect(FileManager.default.fileExists(atPath: blueprint.path(percentEncoded: false)))
@@ -373,10 +614,11 @@ struct CLIJsonOutputIntegrationTests {
                 "--mode", "init",
                 "--format", "json"
             ],
-            cwd: root
+            cwd: root,
+            timeoutSeconds: 300
         )
         #expect(applyResult.status == 0)
-        let applyPayload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(applyResult.stdout.utf8))
+        let applyPayload = try JSONDecoder().decode(CommandOutput.self, from: Data(applyResult.stdout.utf8))
         #expect(applyPayload.command == "apply")
         #expect(applyPayload.status == "success")
         #expect(
@@ -398,7 +640,7 @@ struct CLIJsonOutputIntegrationTests {
             cwd: root
         )
         #expect(dryRunResult.status == 0)
-        let dryRunPayload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(dryRunResult.stdout.utf8))
+        let dryRunPayload = try JSONDecoder().decode(CommandOutput.self, from: Data(dryRunResult.stdout.utf8))
         #expect(dryRunPayload.command == "apply")
         #expect(dryRunPayload.status == "success")
 
@@ -420,7 +662,7 @@ struct CLIJsonOutputIntegrationTests {
             ]
         )
         #expect(releaseInitResult.status == 0)
-        let releasePayload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(releaseInitResult.stdout.utf8))
+        let releasePayload = try JSONDecoder().decode(CommandOutput.self, from: Data(releaseInitResult.stdout.utf8))
         #expect(releasePayload.command == "release-init")
         #expect(releasePayload.status == "success")
         #expect(
@@ -476,7 +718,8 @@ struct CLIJsonOutputIntegrationTests {
                 "--for", "core",
                 "--format", "json"
             ],
-            cwd: root
+            cwd: root,
+            environment: developerToolEnvironment()
         )
         #expect(result.status == 0)
 
@@ -503,7 +746,8 @@ struct CLIJsonOutputIntegrationTests {
                 "--for", "core",
                 "--format", "json"
             ],
-            cwd: root
+            cwd: root,
+            environment: developerToolEnvironment()
         )
         #expect(result.status == 0)
 
@@ -622,10 +866,11 @@ struct CLIJsonOutputIntegrationTests {
         let payload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(result.stdout.utf8))
         #expect(payload.command == "doctor")
         #expect(payload.status == "failed")
-        #expect(payload.installAttempts.contains(where: { $0.tool == "tuist" && $0.status == "skipped-no-runner" }))
+        // tuist auto-install always uses brew (hardcoded), so an attempt is made regardless of installHints
+        #expect(payload.installAttempts.contains(where: { $0.tool == "tuist" }))
     }
 
-    @Test func doctorDefaultsToReleaseInitAndCreatesSigningEnvTemplate() throws {
+    @Test func doctorDefaultsToCoreAndSkipsSigningTemplateBootstrap() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -633,6 +878,40 @@ struct CLIJsonOutputIntegrationTests {
         let result = try runBootstrap(
             args: [
                 "doctor",
+                "--project-root", root.path(percentEncoded: false),
+                "--format", "json"
+            ],
+            cwd: root,
+            environment: developerToolEnvironment().merging(
+                [
+                    "ASC_ISSUER_ID": "",
+                    "ASC_KEY_ID": "",
+                    "ASC_KEY_P8_BASE64": "",
+                    "MATCH_GIT_URL": "",
+                    "MATCH_PASSWORD": ""
+                ],
+                uniquingKeysWith: { _, new in new }
+            )
+        )
+
+        #expect(result.status == 0)
+        #expect(!FileManager.default.fileExists(atPath: signingPath.path(percentEncoded: false)))
+
+        let payload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(result.stdout.utf8))
+        #expect(payload.scope == "core")
+        #expect(payload.findings.contains(where: { $0.tool == "fastlane" && $0.severity == "recommended" }))
+        #expect(!payload.findings.contains(where: { $0.tool == "signing-env" && $0.severity == "required" }))
+    }
+
+    @Test func doctorReleaseInitScopeCreatesSigningEnvTemplate() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let signingPath = root.appending(path: ".bos/config/signing.env")
+        let result = try runBootstrap(
+            args: [
+                "doctor",
+                "--for", "release-init",
                 "--project-root", root.path(percentEncoded: false),
                 "--format", "json"
             ],
@@ -658,6 +937,76 @@ struct CLIJsonOutputIntegrationTests {
         #expect(payload.artifacts.allSatisfy { $0.contains("/.bos/artifacts/doctor/") })
     }
 
+    @Test func doctorAppRegisterScopeRequiresOnlyAppStoreConnectKeys() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let signingPath = root.appending(path: ".bos/config/signing.env")
+        let result = try runBootstrap(
+            args: [
+                "doctor",
+                "--for", "app-register",
+                "--project-root", root.path(percentEncoded: false),
+                "--format", "json"
+            ],
+            cwd: root,
+            environment: developerToolEnvironment().merging(
+                [
+                    "ASC_ISSUER_ID": "123E4567-E89B-12D3-A456-426614174000",
+                    "ASC_KEY_ID": "AB12CD34EF",
+                    "ASC_KEY_P8_BASE64": "c3VwZXItc2VjcmV0",
+                    "MATCH_GIT_URL": "",
+                    "MATCH_PASSWORD": ""
+                ],
+                uniquingKeysWith: { _, new in new }
+            )
+        )
+
+        #expect(result.status == 0)
+        #expect(FileManager.default.fileExists(atPath: signingPath.path(percentEncoded: false)))
+
+        let payload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(result.stdout.utf8))
+        #expect(payload.scope == "app-register")
+        #expect(payload.findings.contains(where: { $0.tool == "signing-env" && $0.severity == "required" }))
+        #expect(!payload.findings.contains(where: { $0.tool == "fastlane" && $0.severity == "required" }))
+    }
+
+    @Test func doctorReportsClearMigrationErrorForLegacyToolchainLockSchema() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let lockPath = root.appending(path: "config/toolchain.lock.yaml")
+        try FileManager.default.createDirectory(at: lockPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(
+            """
+            schemaVersion: 1
+            swift: "6.0.0"
+            tuist: "4.0.0"
+            fastlane: "2.228.0"
+            tmaPluginRef:
+              type: git-sha
+              value: abc123
+            """.utf8
+        ).write(to: lockPath, options: .atomic)
+
+        let result = try runBootstrap(
+            args: [
+                "doctor",
+                "--project-root", root.path(percentEncoded: false),
+                "--format", "json"
+            ],
+            cwd: root,
+            environment: ["BOS_AUTO_INSTALL": "0"]
+        )
+        #expect(result.status == 2)
+
+        let payload = try JSONDecoder().decode(CommandOutput.self, from: Data(result.stdout.utf8))
+        #expect(payload.command == "doctor")
+        #expect(payload.exitCode == 2)
+        #expect(payload.summary.contains("unsupported legacy toolchain lock schemaVersion 1"))
+        #expect(payload.summary.contains("rerun `bos doctor`"))
+    }
+
     @Test func doctorUsesProjectScopedArtifactDirectory() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -669,7 +1018,8 @@ struct CLIJsonOutputIntegrationTests {
                 "--for", "core",
                 "--format", "json"
             ],
-            cwd: root
+            cwd: root,
+            environment: developerToolEnvironment()
         )
         #expect(result.status == 0)
 
@@ -703,6 +1053,7 @@ struct CLIJsonOutputIntegrationTests {
         let result = try runBootstrap(
             args: [
                 "doctor",
+                "--for", "release-init",
                 "--project-root", root.path(percentEncoded: false),
                 "--format", "json"
             ],
@@ -710,7 +1061,7 @@ struct CLIJsonOutputIntegrationTests {
         )
         #expect(result.status == 6)
 
-        let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(result.stdout.utf8))
+        let payload = try JSONDecoder().decode(CommandOutput.self, from: Data(result.stdout.utf8))
         #expect(payload.command == "doctor")
         #expect(payload.exitCode == 6)
         #expect(payload.summary.contains("invalid signing env in"))
@@ -736,6 +1087,7 @@ struct CLIJsonOutputIntegrationTests {
         let result = try runBootstrap(
             args: [
                 "doctor",
+                "--for", "release-init",
                 "--project-root", root.path(percentEncoded: false),
                 "--format", "json"
             ],
@@ -743,7 +1095,7 @@ struct CLIJsonOutputIntegrationTests {
         )
         #expect(result.status == 6)
 
-        let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(result.stdout.utf8))
+        let payload = try JSONDecoder().decode(CommandOutput.self, from: Data(result.stdout.utf8))
         #expect(payload.command == "doctor")
         #expect(payload.exitCode == 6)
         #expect(payload.summary.contains("line 5"))
@@ -760,7 +1112,8 @@ struct CLIJsonOutputIntegrationTests {
                 "--for", "core",
                 "--format", "json"
             ],
-            cwd: root
+            cwd: root,
+            environment: developerToolEnvironment()
         )
         #expect(first.status == 0)
         let firstPayload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(first.stdout.utf8))
@@ -774,7 +1127,8 @@ struct CLIJsonOutputIntegrationTests {
                 "--for", "core",
                 "--format", "json"
             ],
-            cwd: root
+            cwd: root,
+            environment: developerToolEnvironment()
         )
         #expect(second.status == 0)
         let secondPayload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(second.stdout.utf8))
@@ -837,7 +1191,7 @@ struct CLIJsonOutputIntegrationTests {
         )
         #expect(result.status == 5)
 
-        let payload = try JSONDecoder().decode(CommandOutputV1.self, from: Data(result.stdout.utf8))
+        let payload = try JSONDecoder().decode(CommandOutput.self, from: Data(result.stdout.utf8))
         #expect(payload.command == "release-init")
         #expect(payload.exitCode == 5)
         #expect(payload.summary.contains("invalid signing env in"))
@@ -864,6 +1218,43 @@ private extension CLIJsonOutputIntegrationTests {
         let scope: String
         let findings: [Finding]
         let installAttempts: [InstallAttempt]
+        let artifacts: [String]
+    }
+
+    struct ReleaseCheckPayload: Decodable {
+        let command: String
+        let status: String
+        let exitCode: Int
+        let summary: String
+        let mode: String
+        let failureCode: String?
+        let failedStep: String?
+        let artifacts: [String]
+    }
+
+    struct AppRegisterPayload: Decodable {
+        let command: String
+        let status: String
+        let exitCode: Int
+        let summary: String
+        let appIdentifier: String?
+        let appName: String?
+        let sku: String?
+        let primaryLanguage: String?
+        let bundleIdStatus: String?
+        let appStatus: String?
+        let artifacts: [String]
+    }
+
+    struct ReleaseRunPayload: Decodable {
+        let command: String
+        let status: String
+        let exitCode: Int
+        let summary: String
+        let stage: String
+        let failureCode: String?
+        let failedStep: String?
+        let ipaPath: String?
         let artifacts: [String]
     }
 
@@ -935,6 +1326,36 @@ private extension CLIJsonOutputIntegrationTests {
         return ProcessResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
 
+    func defaultProfileYAML() -> String {
+        """
+        schemaVersion: 1
+        name: default
+        defaults:
+          deploymentTarget: "18.0"
+          appTargets:
+            controlsExtension: false
+            uiTests: true
+        identity:
+          companyName:
+          appName:
+          appIdentifier:
+          appleTeamId:
+        release:
+          primaryLanguage: "en-US"
+          sku:
+          matchGitURL:
+        featurePattern:
+          sourcesInterface: true
+          designFolder: false
+        rules:
+          testingStyle: swift-testing
+          forbidPatterns:
+            - "@unchecked Sendable"
+            - "Date()"
+            - "UUID()"
+        """
+    }
+
     func waitForExit(_ process: Process, timeoutSeconds: TimeInterval) -> Bool {
         let group = DispatchGroup()
         group.enter()
@@ -950,6 +1371,24 @@ private extension CLIJsonOutputIntegrationTests {
             .appendingPathComponent("bos-cli-e2e-\(ProcessInfo.processInfo.globallyUniqueString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
+    }
+
+    func developerToolEnvironment() -> [String: String] {
+        [
+            "BOS_AUTO_INSTALL": "0",
+            "DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer"
+        ]
+    }
+
+    func writeReleaseCheckScaffold(root: URL) throws {
+        let fastlane = root.appending(path: "fastlane")
+        try FileManager.default.createDirectory(at: fastlane, withIntermediateDirectories: true)
+        try Data("lane :auth_ping do\nend\nlane :certs_readonly do\nend\nlane :certs do\nend\n".utf8)
+            .write(to: fastlane.appending(path: "Fastfile"), options: .atomic)
+        try Data("app_identifier(\"com.example.app\")\n".utf8)
+            .write(to: fastlane.appending(path: "Appfile"), options: .atomic)
+        try Data("git_url(\"git@github.com:org/certs.git\")\n".utf8)
+            .write(to: fastlane.appending(path: "Matchfile"), options: .atomic)
     }
 
     func bootstrapBinaryURL() throws -> URL {

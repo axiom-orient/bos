@@ -27,7 +27,7 @@ private extension ProfilePolicyE2ETests {
         }
     }
 
-    func runE2E(profile: ProfileV1, expectedScheme: String) throws {
+    func runE2E(profile: Profile, expectedScheme: String) throws {
         let root = try makeTempDir(prefix: "bos-profile-e2e")
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -50,40 +50,40 @@ private extension ProfilePolicyE2ETests {
 
         #expect(!verifyResult.artifacts.isEmpty)
         #expect(runner.commands.count == 4)
-        #expect(runner.commands[2] == ["xcodebuild", "build", "-scheme", expectedScheme])
+        #expect(runner.commands[2] == ["xcodebuild", "build", "-scheme", expectedScheme, "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"])
         #expect(FileManager.default.fileExists(atPath: root.appending(path: "Projects/App/Project.swift").path(percentEncoded: false)))
     }
 
-    func loadProfile(from path: URL) throws -> ProfileV1 {
+    func loadProfile(from path: URL) throws -> Profile {
         let data = try Data(contentsOf: path)
-        return try JSONDecoder().decode(ProfileV1.self, from: data)
+        return try JSONDecoder().decode(Profile.self, from: data)
     }
 
-    func makeBlueprint(projectName: String) throws -> BlueprintV1 {
-        let project = try BlueprintV1.Project(
+    func makeBlueprint(projectName: String) throws -> Blueprint {
+        let project = try Blueprint.Project(
             name: projectName,
             bundleIdPrefix: "com.axiomorient",
             deploymentTarget: "18.0"
         )
-        let requirements = try BlueprintV1.Requirements(
+        let requirements = try Blueprint.Requirements(
             reqIds: ["REQ-001"],
             screens: ["SCR_HOME"]
         )
-        let app = try BlueprintV1.AppModule(name: projectName)
-        let modules = try BlueprintV1.Modules(
+        let app = try Blueprint.AppModule(name: projectName)
+        let modules = try Blueprint.Modules(
             app: app,
             features: ["Root", "Home"],
             domains: ["User"],
             services: ["Auth"],
             shared: ["Core", "DesignSystem"]
         )
-        let wiring = try BlueprintV1.Wiring(rootFeature: "Root")
-        let fastlane = try BlueprintV1.Fastlane(
+        let wiring = try Blueprint.Wiring(rootFeature: "Root")
+        let fastlane = try Blueprint.Fastlane(
             appIdentifier: "com.axiomorient.\(projectName.lowercased())",
             appleTeamId: "A1B2C3D4E5"
         )
-        let release = BlueprintV1.Release(fastlane: fastlane)
-        return try BlueprintV1(
+        let release = Blueprint.Release(fastlane: fastlane)
+        return try Blueprint(
             schemaVersion: 1,
             project: project,
             requirements: requirements,

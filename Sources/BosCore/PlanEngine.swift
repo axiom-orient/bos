@@ -11,17 +11,29 @@ public enum PlanEngineError: Error, Equatable {
 
 public struct PlanDeriveOptions: Sendable {
     public let projectName: String?
+    public let appName: String?
     public let appIdentifier: String?
     public let appleTeamID: String?
+    public let companyName: String?
+    public let primaryLanguage: String?
+    public let sku: String?
 
     public init(
         projectName: String? = nil,
+        appName: String? = nil,
         appIdentifier: String? = nil,
-        appleTeamID: String? = nil
+        appleTeamID: String? = nil,
+        companyName: String? = nil,
+        primaryLanguage: String? = nil,
+        sku: String? = nil
     ) {
         self.projectName = Self.normalized(projectName)
+        self.appName = Self.normalized(appName)
         self.appIdentifier = Self.normalized(appIdentifier)
         self.appleTeamID = Self.normalized(appleTeamID)
+        self.companyName = Self.normalized(companyName)
+        self.primaryLanguage = Self.normalized(primaryLanguage)
+        self.sku = Self.normalized(sku)
     }
 
     private static func normalized(_ value: String?) -> String? {
@@ -53,7 +65,11 @@ extension PlanEngineError: LocalizedError {
 public struct PlanEngine: Sendable {
     public init() {}
 
-    public func generateBlueprint(prd: String, profile: ProfileV1) throws -> BlueprintV1 {
+    public func generateBlueprint(
+        prd: String,
+        profile: Profile,
+        options: PlanDeriveOptions = .init()
+    ) throws -> Blueprint {
         let reqIDs = RuntimeSupport.uniqueOrdered(extractRequirementIDs(in: prd))
         guard !reqIDs.isEmpty else { throw PlanEngineError.missingReqIDs }
 
@@ -63,12 +79,20 @@ public struct PlanEngine: Sendable {
         let entities = extractEntities(from: prd)
         guard !entities.isEmpty else { throw PlanEngineError.missingEntities }
 
-        let appIdentifier = firstCapturedGroup(in: prd, regex: Self.appIdentifierRegex)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let appIdentifier = firstNonEmpty(
+            options.appIdentifier,
+            profile.configuredAppIdentifier,
+            firstCapturedGroup(in: prd, regex: Self.appIdentifierRegex)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        )
         guard let appIdentifier, !appIdentifier.isEmpty else { throw PlanEngineError.missingAppIdentifier }
 
-        let appleTeamID = firstCapturedGroup(in: prd, regex: Self.appleTeamIDRegex)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let appleTeamID = firstNonEmpty(
+            options.appleTeamID,
+            profile.configuredAppleTeamId,
+            firstCapturedGroup(in: prd, regex: Self.appleTeamIDRegex)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        )
         guard let appleTeamID, !appleTeamID.isEmpty else { throw PlanEngineError.missingAppleTeamID }
 
         let explicitPrefix = firstCapturedGroup(in: prd, regex: Self.bundlePrefixRegex)?
@@ -76,30 +100,62 @@ public struct PlanEngine: Sendable {
         let bundlePrefix = explicitPrefix ?? deriveBundlePrefix(from: appIdentifier)
         guard let bundlePrefix, !bundlePrefix.isEmpty else { throw PlanEngineError.missingBundleIdPrefix }
 
-        let projectName = projectName(from: prd, appIdentifier: appIdentifier)
+        let projectName = resolvedProjectName(from: prd, appIdentifier: appIdentifier, options: options)
+        let appName = firstNonEmpty(
+            options.appName,
+            profile.configuredAppName,
+            firstCapturedGroup(in: prd, regex: Self.appNameRegex)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            projectName
+        ) ?? projectName
+        let companyName = firstNonEmpty(
+            options.companyName,
+            profile.configuredCompanyName,
+            firstCapturedGroup(in: prd, regex: Self.companyNameRegex)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let primaryLanguage = firstNonEmpty(
+            options.primaryLanguage,
+            profile.configuredPrimaryLanguage,
+            firstCapturedGroup(in: prd, regex: Self.primaryLanguageRegex)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ) ?? "en-US"
+        let sku = firstNonEmpty(
+            options.sku,
+            profile.configuredSKU,
+            firstCapturedGroup(in: prd, regex: Self.skuRegex)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ) ?? derivedSKU(companyName: companyName, appName: appName, appIdentifier: appIdentifier)
         let domainNames = RuntimeSupport.uniqueOrdered(entities.map(toPascalCase))
         let featureNames = buildFeatures(from: screens)
         let serviceNames = RuntimeSupport.uniqueOrdered(domainNames.map { "\($0)Service" })
 
-        let project = try BlueprintV1.Project(
+        let project = try Blueprint.Project(
             name: projectName,
             bundleIdPrefix: bundlePrefix,
             deploymentTarget: profile.defaults.deploymentTarget
         )
-        let requirements = try BlueprintV1.Requirements(reqIds: reqIDs, screens: screens)
-        let appModule = try BlueprintV1.AppModule(name: projectName)
-        let modules = try BlueprintV1.Modules(
+        let requirements = try Blueprint.Requirements(reqIds: reqIDs, screens: screens)
+        let appModule = try Blueprint.AppModule(name: projectName)
+        let modules = try Blueprint.Modules(
             app: appModule,
             features: featureNames,
             domains: domainNames,
             services: serviceNames,
             shared: ["Core", "DesignSystem"]
         )
-        let wiring = try BlueprintV1.Wiring(rootFeature: "Root")
-        let fastlane = try BlueprintV1.Fastlane(appIdentifier: appIdentifier, appleTeamId: appleTeamID)
-        let release = BlueprintV1.Release(fastlane: fastlane)
+        let wiring = try Blueprint.Wiring(rootFeature: "Root")
+        let fastlane = try Blueprint.Fastlane(
+            appIdentifier: appIdentifier,
+            appleTeamId: appleTeamID,
+            appName: appName,
+            sku: sku,
+            primaryLanguage: primaryLanguage,
+            companyName: companyName
+        )
+        let release = Blueprint.Release(fastlane: fastlane)
 
-        return try BlueprintV1(
+        return try Blueprint(
             schemaVersion: 1,
             project: project,
             requirements: requirements,
@@ -119,23 +175,49 @@ public struct PlanEngine: Sendable {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             ?? deriveProjectNameFromHeading(in: text)
             ?? "App"
+        let appName = options.appName
+            ?? firstCapturedGroup(in: text, regex: Self.appNameRegex)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? projectName
         let appIdentifier = options.appIdentifier
             ?? firstCapturedGroup(in: text, regex: Self.appIdentifierRegex)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         let appleTeamID = options.appleTeamID
             ?? firstCapturedGroup(in: text, regex: Self.appleTeamIDRegex)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+        let companyName = options.companyName
+            ?? firstCapturedGroup(in: text, regex: Self.companyNameRegex)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        let primaryLanguage = options.primaryLanguage
+            ?? firstCapturedGroup(in: text, regex: Self.primaryLanguageRegex)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? "en-US"
+        let sku = options.sku
+            ?? firstCapturedGroup(in: text, regex: Self.skuRegex)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? {
+                guard let appIdentifier else { return nil }
+                return derivedSKU(companyName: companyName, appName: appName, appIdentifier: appIdentifier)
+            }()
 
         var lines: [String] = [
             "# Derived PRD",
             "",
-            "Project: \(projectName)"
+            "Project: \(projectName)",
+            "App Name: \(appName)"
         ]
         if let appIdentifier {
             lines.append("App Identifier: \(appIdentifier)")
         }
         if let appleTeamID {
             lines.append("Apple Team ID: \(appleTeamID)")
+        }
+        if let companyName {
+            lines.append("Company Name: \(companyName)")
+        }
+        lines.append("Primary Language: \(primaryLanguage)")
+        if let sku {
+            lines.append("SKU: \(sku)")
         }
         lines.append("")
         lines.append("## Requirements")
@@ -173,6 +255,18 @@ extension PlanEngine {
     )
     private static let appleTeamIDRegex = try! NSRegularExpression(
         pattern: #"(?mi)^\s*(?:Apple Team ID|Team ID|AppleTeamId)\s*:\s*([A-Za-z0-9]+)\s*$"#
+    )
+    private static let appNameRegex = try! NSRegularExpression(
+        pattern: #"(?mi)^\s*(?:App Name|AppName)\s*:\s*(.+?)\s*$"#
+    )
+    private static let companyNameRegex = try! NSRegularExpression(
+        pattern: #"(?mi)^\s*(?:Company Name|CompanyName)\s*:\s*(.+?)\s*$"#
+    )
+    private static let primaryLanguageRegex = try! NSRegularExpression(
+        pattern: #"(?mi)^\s*(?:Primary Language|PrimaryLanguage)\s*:\s*([A-Za-z]{2}-[A-Za-z]{2})\s*$"#
+    )
+    private static let skuRegex = try! NSRegularExpression(
+        pattern: #"(?mi)^\s*(?:SKU|Sku)\s*:\s*([A-Za-z0-9._-]+)\s*$"#
     )
     private static let bundlePrefixRegex = try! NSRegularExpression(
         pattern: #"(?mi)^\s*(?:Bundle(?:Id)?Prefix|Bundle Prefix)\s*:\s*([A-Za-z0-9.]+)\s*$"#
@@ -230,6 +324,17 @@ extension PlanEngine {
         return RuntimeSupport.uniqueOrdered(explicit + headingEntities)
     }
 
+    private func resolvedProjectName(
+        from prd: String,
+        appIdentifier: String,
+        options: PlanDeriveOptions
+    ) -> String {
+        if let explicit = options.projectName {
+            return explicit
+        }
+        return projectName(from: prd, appIdentifier: appIdentifier)
+    }
+
     private func projectName(from prd: String, appIdentifier: String) -> String {
         if let explicit = firstCapturedGroup(in: prd, regex: Self.projectNameRegex)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -283,6 +388,29 @@ extension PlanEngine {
 
     private func firstCapturedGroup(in text: String, regex: NSRegularExpression) -> String? {
         capturedGroups(in: text, regex: regex).first
+    }
+
+    private func firstNonEmpty(_ values: String?...) -> String? {
+        values.first { value in
+            guard let value else { return false }
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        } ?? nil
+    }
+
+    private func derivedSKU(companyName: String?, appName: String, appIdentifier: String) -> String? {
+        AppRegistrationSupport.deterministicSKU(
+            companyName: companyName,
+            appName: appName,
+            appIdentifier: appIdentifier
+        )
+    }
+
+    private func slug(_ value: String) -> String {
+        let lowercase = value.lowercased()
+        let pieces = lowercase.split { character in
+            !character.isLetter && !character.isNumber
+        }
+        return pieces.map(String.init).filter { !$0.isEmpty }.joined(separator: "-")
     }
 
     private func deriveScreensFromKeywords(in text: String) -> [String] {
