@@ -87,6 +87,13 @@ public protocol AppRegistrationProviding: Sendable {
     func register(metadata: AppRegistrationResolvedMetadata, environment: [String: String]) throws -> AppRegistrationProviderResult
 }
 
+protocol AppStoreConnectClienting: Sendable {
+    func hasBundleId(identifier: String) throws -> Bool
+    func createBundleId(identifier: String, name: String) throws
+    func hasApp(bundleIdentifier: String) throws -> Bool
+    func createApp(metadata: AppRegistrationResolvedMetadata) throws
+}
+
 public struct AppRegistrationProviderResult: Sendable, Equatable {
     public let bundleIdStatus: AppRegistrationResourceStatus
     public let appStatus: AppRegistrationResourceStatus
@@ -511,18 +518,26 @@ private extension AppRegistrationEngine {
 }
 
 public struct NativeAppRegistrationProvider: AppRegistrationProviding {
-    public init() {}
+    private let clientFactory: @Sendable ([String: String]) throws -> any AppStoreConnectClienting
+
+    public init() {
+        self.clientFactory = { try AppStoreConnectAPIClient(environment: $0) }
+    }
+
+    init(clientFactory: @escaping @Sendable ([String: String]) throws -> any AppStoreConnectClienting) {
+        self.clientFactory = clientFactory
+    }
 
     public func register(
         metadata: AppRegistrationResolvedMetadata,
         environment: [String: String]
     ) throws -> AppRegistrationProviderResult {
-        let client = try AppStoreConnectAPIClient(environment: environment)
+        let client = try clientFactory(environment)
 
         let bundleIdStatus: AppRegistrationResourceStatus
-        if try client.fetchBundleId(identifier: metadata.appIdentifier) == nil {
+        if try !client.hasBundleId(identifier: metadata.appIdentifier) {
             do {
-                _ = try client.createBundleId(
+                try client.createBundleId(
                     identifier: metadata.appIdentifier,
                     name: AppRegistrationSupport.bundleIdentifierDisplayName(
                         companyName: metadata.companyName,
@@ -532,7 +547,7 @@ public struct NativeAppRegistrationProvider: AppRegistrationProviding {
                 )
                 bundleIdStatus = .created
             } catch {
-                if try client.fetchBundleId(identifier: metadata.appIdentifier) != nil {
+                if try client.hasBundleId(identifier: metadata.appIdentifier) {
                     bundleIdStatus = .existing
                 } else {
                     throw error
@@ -543,12 +558,12 @@ public struct NativeAppRegistrationProvider: AppRegistrationProviding {
         }
 
         let appStatus: AppRegistrationResourceStatus
-        if try client.fetchApp(bundleIdentifier: metadata.appIdentifier) == nil {
+        if try !client.hasApp(bundleIdentifier: metadata.appIdentifier) {
             do {
-                _ = try client.createApp(metadata: metadata)
+                try client.createApp(metadata: metadata)
                 appStatus = .created
             } catch {
-                if try client.fetchApp(bundleIdentifier: metadata.appIdentifier) != nil {
+                if try client.hasApp(bundleIdentifier: metadata.appIdentifier) {
                     appStatus = .existing
                 } else {
                     throw error
@@ -565,13 +580,17 @@ public struct NativeAppRegistrationProvider: AppRegistrationProviding {
     }
 }
 
-private struct AppStoreConnectAPIClient {
+private struct AppStoreConnectAPIClient: AppStoreConnectClienting {
     private let session: URLSession
     private let token: String
 
     init(environment: [String: String], session: URLSession = .shared) throws {
         self.session = session
         self.token = try AppStoreConnectTokenFactory().makeBearerToken(environment: environment)
+    }
+
+    func hasBundleId(identifier: String) throws -> Bool {
+        try fetchBundleId(identifier: identifier) != nil
     }
 
     fileprivate func fetchBundleId(identifier: String) throws -> BundleIdRecord? {
@@ -587,7 +606,11 @@ private struct AppStoreConnectAPIClient {
         return response.data.first
     }
 
-    fileprivate func createBundleId(identifier: String, name: String) throws -> BundleIdRecord {
+    func createBundleId(identifier: String, name: String) throws {
+        _ = try createBundleIdRecord(identifier: identifier, name: name)
+    }
+
+    fileprivate func createBundleIdRecord(identifier: String, name: String) throws -> BundleIdRecord {
         let payload: [String: Any] = [
             "data": [
                 "type": "bundleIds",
@@ -607,6 +630,10 @@ private struct AppStoreConnectAPIClient {
         return response.data
     }
 
+    func hasApp(bundleIdentifier: String) throws -> Bool {
+        try fetchApp(bundleIdentifier: bundleIdentifier) != nil
+    }
+
     fileprivate func fetchApp(bundleIdentifier: String) throws -> AppRecord? {
         let response: CollectionResponse<AppRecord> = try request(
             method: "GET",
@@ -620,7 +647,11 @@ private struct AppStoreConnectAPIClient {
         return response.data.first
     }
 
-    fileprivate func createApp(metadata: AppRegistrationResolvedMetadata) throws -> AppRecord {
+    func createApp(metadata: AppRegistrationResolvedMetadata) throws {
+        _ = try createAppRecord(metadata: metadata)
+    }
+
+    fileprivate func createAppRecord(metadata: AppRegistrationResolvedMetadata) throws -> AppRecord {
         let payload = appPayload(metadata: metadata)
         let response: ResourceResponse<AppRecord> = try request(
             method: "POST",

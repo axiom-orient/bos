@@ -98,6 +98,92 @@ struct ReleaseRunEngineIntegrationTests {
         #expect(uploadEnvironment["IPA_PATH"]?.hasSuffix("daycraftapp.ipa") == true)
     }
 
+    @Test func releaseRunReleaseStageUsesAppStoreUploadLane() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let runner = RecordingRunner(
+            scriptedResults: [
+                ReleaseRunCommandResult(exitCode: 0),
+                ReleaseRunCommandResult(exitCode: 0),
+                ReleaseRunCommandResult(exitCode: 0),
+                ReleaseRunCommandResult(exitCode: 0)
+            ]
+        )
+        let releaseChecker = StubReleaseChecker(result: .success(.init(
+            artifacts: [],
+            summary: "Release check passed (readonly-certs)",
+            mode: .readonlyCerts,
+            failureCode: nil,
+            failedStep: nil
+        )))
+        let engine = ReleaseRunEngine(runner: runner, releaseChecker: releaseChecker)
+
+        _ = try engine.run(
+            request: ReleaseRunRequest(
+                projectRoot: root,
+                blueprint: try makeBlueprint(),
+                profile: try makeProfile(name: "daycraft"),
+                environment: requiredEnvironment(),
+                stage: .release
+            )
+        )
+
+        #expect(runner.commands == [
+            ["tuist", "install"],
+            ["tuist", "generate", "--no-open"],
+            ["fastlane", "ios", "build"],
+            ["fastlane", "ios", "release"]
+        ])
+    }
+
+    @Test func releaseRunSubmitStageClassifiesSubmitLaneFailure() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeBootstrapStateFixture(root: root)
+
+        let runner = RecordingRunner(
+            scriptedResults: [
+                ReleaseRunCommandResult(exitCode: 0),
+                ReleaseRunCommandResult(exitCode: 0),
+                ReleaseRunCommandResult(exitCode: 0),
+                ReleaseRunCommandResult(exitCode: 1, stderr: "submit failed")
+            ]
+        )
+        let releaseChecker = StubReleaseChecker(result: .success(.init(
+            artifacts: [],
+            summary: "Release check passed (readonly-certs)",
+            mode: .readonlyCerts,
+            failureCode: nil,
+            failedStep: nil
+        )))
+        let engine = ReleaseRunEngine(runner: runner, releaseChecker: releaseChecker)
+
+        do {
+            _ = try engine.run(
+                request: ReleaseRunRequest(
+                    projectRoot: root,
+                    blueprint: try makeBlueprint(),
+                    profile: try makeProfile(name: "daycraft"),
+                    environment: requiredEnvironment(),
+                    stage: .submit
+                )
+            )
+            Issue.record("expected ReleaseRunEngineError.failed")
+        } catch ReleaseRunEngineError.failed(let classification, let step, let summary, _, _) {
+            #expect(classification == .submit)
+            #expect(step == .fastlaneSubmit)
+            #expect(summary.contains("submit failed"))
+        }
+
+        #expect(runner.commands == [
+            ["tuist", "install"],
+            ["tuist", "generate", "--no-open"],
+            ["fastlane", "ios", "build"],
+            ["fastlane", "ios", "submit"]
+        ])
+    }
+
     @Test func releaseRunMapsReleaseCheckFailureToPreflightAndUpdatesState() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
