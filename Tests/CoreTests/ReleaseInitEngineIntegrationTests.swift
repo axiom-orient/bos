@@ -19,7 +19,7 @@ struct ReleaseInitEngineIntegrationTests {
             )
         )
 
-        #expect(result.lanes == ["certs", "build", "beta", "release", "release_metadata"])
+        #expect(result.lanes == ["auth_ping", "certs_readonly", "certs", "build", "beta", "release", "submit", "release_metadata"])
         #expect(result.generatedFiles.count == 4)
         #expect(result.artifacts.count == 2)
 
@@ -39,12 +39,22 @@ struct ReleaseInitEngineIntegrationTests {
 
         let fastfileContent = try String(contentsOf: fastfile, encoding: .utf8)
         #expect(fastfileContent.contains("private_lane :asc_api_key do"))
+        #expect(fastfileContent.contains("lane :auth_ping do"))
+        #expect(fastfileContent.contains("Spaceship::ConnectAPI::App.all(limit: 1)"))
+        #expect(fastfileContent.contains("lane :certs_readonly do"))
+        #expect(fastfileContent.contains("sync_code_signing(type: \"appstore\", readonly: true, api_key: asc_api_key)"))
         #expect(fastfileContent.contains("lane :certs do"))
         #expect(fastfileContent.contains("sync_code_signing(type: \"appstore\", readonly: false, api_key: asc_api_key)"))
         #expect(fastfileContent.contains("lane :build do"))
+        #expect(fastfileContent.contains("workspace: ENV[\"BOS_WORKSPACE_PATH\"]"))
+        #expect(fastfileContent.contains("output_directory: output_directory"))
+        #expect(fastfileContent.contains("BOS_IPA_PATH="))
         #expect(fastfileContent.contains("lane :beta do"))
         #expect(fastfileContent.contains("api_key = asc_api_key"))
         #expect(fastfileContent.contains("lane :release do"))
+        #expect(fastfileContent.contains("deliver(api_key: api_key, ipa: ENV[\"IPA_PATH\"], submit_for_review: false)"))
+        #expect(fastfileContent.contains("lane :submit do"))
+        #expect(fastfileContent.contains("deliver(api_key: api_key, ipa: ENV[\"IPA_PATH\"], submit_for_review: true)"))
         #expect(fastfileContent.contains("lane :release_metadata do"))
 
         let logPath = try #require(result.artifacts.first(where: { $0.hasSuffix(".log") }))
@@ -159,6 +169,35 @@ struct ReleaseInitEngineIntegrationTests {
         #expect(state.contains("status: \"failed\""))
         #expect(state.contains("missing required environment: MATCH_PASSWORD"))
     }
+
+    @Test func releaseInitUsesProfileMatchGitURLAndPrimaryLanguage() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var env = requiredEnvironment()
+        env["MATCH_GIT_URL"] = nil
+
+        _ = try engine.releaseInit(
+            request: ReleaseInitRequest(
+                projectRoot: root,
+                blueprint: try makeBlueprint(primaryLanguage: "ko-KR"),
+                profile: try makeProfile(
+                    name: "daycraft",
+                    release: .init(
+                        primaryLanguage: "ko-KR",
+                        matchGitURL: "https://github.com/axiom-orient/AppStoreConnect"
+                    )
+                ),
+                environment: env
+            )
+        )
+
+        let matchfile = root.appending(path: "fastlane/Matchfile")
+        let metadata = root.appending(path: "fastlane/metadata/ko-KR/release_notes.txt")
+        let matchfileContent = try String(contentsOf: matchfile, encoding: .utf8)
+        #expect(matchfileContent.contains("git_url(\"https://github.com/axiom-orient/AppStoreConnect\")"))
+        #expect(FileManager.default.fileExists(atPath: metadata.path(percentEncoded: false)))
+    }
 }
 
 private extension ReleaseInitEngineIntegrationTests {
@@ -179,31 +218,33 @@ private extension ReleaseInitEngineIntegrationTests {
         ]
     }
 
-    func makeBlueprint() throws -> BlueprintV1 {
-        let project = try BlueprintV1.Project(
+    func makeBlueprint(primaryLanguage: String? = nil) throws -> Blueprint {
+        let project = try Blueprint.Project(
             name: "Daycraft",
             bundleIdPrefix: "com.axiomorient",
             deploymentTarget: "18.0"
         )
-        let requirements = try BlueprintV1.Requirements(
+        let requirements = try Blueprint.Requirements(
             reqIds: ["REQ-001"],
             screens: ["SCR_TODAY_HOME"]
         )
-        let app = try BlueprintV1.AppModule(name: "Daycraft")
-        let modules = try BlueprintV1.Modules(
+        let app = try Blueprint.AppModule(name: "Daycraft")
+        let modules = try Blueprint.Modules(
             app: app,
             features: ["Root", "Today"],
             domains: ["User"],
             services: ["Auth"],
             shared: ["Core", "DesignSystem"]
         )
-        let wiring = try BlueprintV1.Wiring(rootFeature: "Root")
-        let fastlane = try BlueprintV1.Fastlane(
+        let wiring = try Blueprint.Wiring(rootFeature: "Root")
+        let fastlane = try Blueprint.Fastlane(
             appIdentifier: "com.axiomorient.daycraft",
-            appleTeamId: "A1B2C3D4E5"
+            appleTeamId: "A1B2C3D4E5",
+            appName: "Daycraft",
+            primaryLanguage: primaryLanguage
         )
-        let release = BlueprintV1.Release(fastlane: fastlane)
-        return try BlueprintV1(
+        let release = Blueprint.Release(fastlane: fastlane)
+        return try Blueprint(
             schemaVersion: 1,
             project: project,
             requirements: requirements,
@@ -213,18 +254,22 @@ private extension ReleaseInitEngineIntegrationTests {
         )
     }
 
-    func makeProfile(name: String) throws -> ProfileV1 {
-        let appTargets = ProfileV1.AppTargets(controlsExtension: true, uiTests: true)
-        let defaults = ProfileV1.Defaults(deploymentTarget: "18.0", appTargets: appTargets)
-        let pattern = ProfileV1.FeaturePattern(sourcesInterface: true, designFolder: true)
-        let rules = try ProfileV1.Rules(
+    func makeProfile(
+        name: String,
+        release: Profile.ReleaseSettings = .init(primaryLanguage: "en-US")
+    ) throws -> Profile {
+        let appTargets = Profile.AppTargets(controlsExtension: true, uiTests: true)
+        let defaults = Profile.Defaults(deploymentTarget: "18.0", appTargets: appTargets)
+        let pattern = Profile.FeaturePattern(sourcesInterface: true, designFolder: true)
+        let rules = try Profile.Rules(
             testingStyle: "swift-testing",
             forbidPatterns: ["@unchecked Sendable", "Date()", "UUID()"]
         )
-        return try ProfileV1(
+        return try Profile(
             schemaVersion: 1,
             name: name,
             defaults: defaults,
+            release: release,
             featurePattern: pattern,
             rules: rules
         )

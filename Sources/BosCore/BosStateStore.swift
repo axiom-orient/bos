@@ -3,6 +3,8 @@ import Foundation
 enum BootstrapStateSummaryKind: Sendable {
     case verify
     case release
+    case releaseCheck
+    case releaseRun
 }
 
 enum BosStateStore {
@@ -43,6 +45,10 @@ extension BosStateStore {
             return "verifySummary"
         case .release:
             return "releaseSummary"
+        case .releaseCheck:
+            return "releaseCheckSummary"
+        case .releaseRun:
+            return "releaseRunSummary"
         }
     }
 

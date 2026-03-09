@@ -31,8 +31,8 @@ struct VerifyEngineIntegrationTests {
             [
                 ["tuist", "install"],
                 ["tuist", "generate", "--no-open"],
-                ["xcodebuild", "build", "-scheme", "DaycraftApp"],
-                ["xcodebuild", "test", "-scheme", "DaycraftApp"]
+                ["xcodebuild", "build", "-scheme", "DaycraftApp", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"],
+                ["xcodebuild", "test", "-scheme", "DaycraftApp", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"]
             ]
         )
 
@@ -74,8 +74,8 @@ struct VerifyEngineIntegrationTests {
             )
         )
 
-        #expect(runner.commands[2] == ["xcodebuild", "build", "-scheme", "IosNativeApp"])
-        #expect(runner.commands[3] == ["xcodebuild", "test", "-scheme", "IosNativeApp"])
+        #expect(runner.commands[2] == ["xcodebuild", "build", "-scheme", "IosNativeApp", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"])
+        #expect(runner.commands[3] == ["xcodebuild", "test", "-scheme", "IosNativeApp", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"])
     }
 
     @Test func verifyAppendsResolvedSimulatorDestinationToTestCommand() throws {
@@ -96,7 +96,7 @@ struct VerifyEngineIntegrationTests {
 
         #expect(
             runner.commands[3] ==
-            ["xcodebuild", "test", "-scheme", "DaycraftApp", "-destination", "id=SIM-DEVICE-1234"]
+            ["xcodebuild", "test", "-scheme", "DaycraftApp", "-destination", "id=SIM-DEVICE-1234", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"]
         )
 
         let logPath = try #require(result.artifacts.first(where: { $0.hasSuffix(".log") }))
@@ -218,8 +218,8 @@ struct VerifyEngineIntegrationTests {
             )
         )
 
-        #expect(runner.commands[2] == ["xcodebuild", "build", "-scheme", "CustomApp"])
-        #expect(runner.commands[3] == ["xcodebuild", "test", "-scheme", "CustomApp"])
+        #expect(runner.commands[2] == ["xcodebuild", "build", "-scheme", "CustomApp", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"])
+        #expect(runner.commands[3] == ["xcodebuild", "test", "-scheme", "CustomApp", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"])
     }
 
     @Test func verifyUpdatesBootstrapStateSummaryOnSuccess() throws {
@@ -366,15 +366,15 @@ private extension VerifyEngineIntegrationTests {
         return root
     }
 
-    func makeProfile(name: String) throws -> ProfileV1 {
-        let appTargets = ProfileV1.AppTargets(controlsExtension: true, uiTests: true)
-        let defaults = ProfileV1.Defaults(deploymentTarget: "18.0", appTargets: appTargets)
-        let pattern = ProfileV1.FeaturePattern(sourcesInterface: true, designFolder: true)
-        let rules = try ProfileV1.Rules(
+    func makeProfile(name: String) throws -> Profile {
+        let appTargets = Profile.AppTargets(controlsExtension: true, uiTests: true)
+        let defaults = Profile.Defaults(deploymentTarget: "18.0", appTargets: appTargets)
+        let pattern = Profile.FeaturePattern(sourcesInterface: true, designFolder: true)
+        let rules = try Profile.Rules(
             testingStyle: "swift-testing",
             forbidPatterns: ["@unchecked Sendable", "Date()", "UUID()"]
         )
-        return try ProfileV1(
+        return try Profile(
             schemaVersion: 1,
             name: name,
             defaults: defaults,

@@ -1,200 +1,305 @@
-# Implementation Plan: 실구현 우선 프로젝트 완성 (2026-03-05)
-
-## Why-How-What
-- Why: 사용자가 최소 명령으로 예측 가능한 결과를 얻고, 테스트가 실제 동작을 정확히 증명해야 한다.
-- How: 명령 계약을 먼저 고정하고, 테스트를 계약/행동/통합으로 분리한 뒤, 레거시 코드와 문서를 최소화한다.
-- What: `verify` 계약 회귀 정리, 테스트 의도 재정렬, 레거시 제거, 최종 출시 게이트 확정.
-
-## StoryBrand 7 (요약)
-| 항목 | 내용 |
-|---|---|
-| Character | `bos`를 처음 쓰는 iOS 개발자 |
-| Problem | 명령 계약이 불명확하면 테스트가 환경 의존으로 흔들리고 출시 판단이 모호해짐 |
-| Guide | `bos` 코어팀(명령 계약 + 테스트 기준 제공) |
-| Plan | 계약 고정 → 테스트 분리/정밀화 → 레거시 제거 → 출시 게이트 통과 |
-| CTA | 로컬에서 재현 가능한 증거 기반으로 출시 여부 결정 |
-| Success | “무엇이 실패했고 왜 실패했는지”가 즉시 보이는 최소 인터페이스 |
-| Failure | 테스트가 실제 의도와 어긋나 장시간 대기/오판정 발생 |
+# Implementation Plan: SSOT App Onboarding + Release Execution (`app-register`, `release-run`) (2026-03-09 KST)
 
 ## Goal
-- 구현을 우선으로 유지하면서 테스트 의도와 검증 대상을 1:1로 맞춘다.
-- CI 확장은 당분간 제외하고, 로컬/통합 테스트만으로 출시 판정을 가능하게 한다.
-- 불필요한 문서/레거시 코드를 정리해 운영 기준 문서를 최소 세트로 축소한다.
-
-## Done (완료 정의)
-- `verify` 계약이 명시되고 관련 테스트가 deterministic하게 종료된다.
-- 테스트가 `계약 검증`과 `실동작 검증`으로 분리되어 각 실패 원인이 즉시 식별된다.
-- 레거시 플래그/문서/중복 계획서가 정리되어 기준 문서가 `README`, `docs/PRODUCT_GUIDE.md`, `docs/IMPLEMENTATION-PLAN.md`, `docs/TASKS.md`로 수렴된다.
-- `docs/UX_REDESIGN.md`의 유효 내용을 기준 문서로 이관한 뒤 파일을 제거한다.
-- 출시 게이트 체크리스트를 모두 만족하는 증거(명령 출력/테스트 로그/파일)가 남는다.
-- 출시 직전 `P0/P1`의 `TODO/DOING/BLOCKED`가 0개다.
+- 사용자가 `bundle id`와 최소 app metadata만 확정하면, `bos`가 App Store Connect app registration까지 일관된 계약으로 자동화할 수 있게 한다.
+- 프로젝트별 non-secret 운영 정보의 SSOT를 `.bos/config/profile.yaml` 하나로 모은다.
+- 기존 `plan -> apply -> verify -> release-init -> release-check` 경로는 유지하되, 앱 등록 책임을 `bos app-register`, 실제 빌드/업로드 책임을 `bos release-run`으로 분리한다.
 
 ## Scope
 - 포함:
-  - CLI 계약 정리(`doctor/plan/apply/verify/release-init`)
-  - 테스트 의도 정밀화 및 회귀 방지
-  - 문서/레거시 정리 계획 수립 및 실행 큐 정의
-  - 출시 게이트 정의
+  - 신규 CLI 명령 `bos app-register`
+  - 신규 CLI 명령 `bos release-run`
+  - `.bos/config/profile.yaml` schema 확장
+  - PlanEngine / Blueprint의 metadata source precedence 재정의
+  - `appName`, `sku`, `primaryLanguage`, `companyName`, `appIdentifier`, `appleTeamId` 데이터 모델 추가
+  - deterministic SKU 생성 규칙 추가
+  - `MATCH_GIT_URL`를 secret 파일이 아니라 profile SSOT로 이동
+  - `release-init` / `release-check`가 profile + signing env를 합쳐 읽도록 재정렬
+  - `release-run`이 `release-init + release-check + tuist + fastlane` pipeline을 소유
+  - 기존 repo를 위한 `config/blueprint.yaml` fallback
+  - app registration regression tests / docs / disposable live run plan
 - 제외:
-  - 신규 CI 파이프라인 구축/확장
-  - 대규모 신기능(`bos init` interactive, `--smoke`, `--run-certs`) 즉시 구현
-  - 외부 리포지토리(Aether 등) 동시 리팩터링
+  - provisioning policy 자체 재설계
+  - CI secret distribution
+  - multi-app workspace 관리
 
 ## Constraints
-- 구현 우선: 문서 변경은 구현/검증 기준을 설명할 때만 수행
-- 테스트 정확성 우선: flaky/환경 의존 테스트는 통과보다 원인 제거를 우선
-- 호환성: 출시 전 단계에서는 레거시 경로를 유지하지 않고 단일 경로로 정리
-- 실행 환경: 현재는 로컬 검증만 요구, CI 확장 금지
+- 사용자-facing 계약은 `bos`가 소유해야 한다. `fastlane produce`를 public command로 직접 노출하지 않는다.
+- secret은 계속 `.bos/config/signing.env`에 남긴다. SSOT 대상은 non-secret 관리 정보만이다.
+- 기존 profile/blueprint/state 파일은 additive change로 읽기 호환성을 유지해야 한다.
+- `release-init`와 `release-check`의 책임 경계는 유지해야 한다.
+- 앱 등록과 signing seed는 같은 흐름에서 다뤄도 되지만, 숨은 write side effect는 허용하지 않는다.
+- 기본 onboarding은 최소 입력을 목표로 하되, 법적/운영 식별자 성격의 값은 추측하지 않는다.
 
-## Acceptance Checklist
-- [x] 계약 테스트가 외부 툴(`tuist`, `xcodebuild`) 실행 없이 완료된다.
-- [x] 행동/통합 테스트는 외부 툴 호출을 허용하되 타임아웃/실패 분류 기준이 있다.
-- [x] `docs/IMPLEMENTATION-PLAN.md`와 `docs/TASKS.md`가 실제 코드 상태와 일치한다.
-- [x] `docs/UX_REDESIGN.md`가 기준 문서로 병합된 뒤 삭제된다.
-- [x] 출시 판단에 필요한 필수 테스트 세트와 명령 로그가 정의된다.
+## Evidence Trail
+- profile SSOT는 구현됐다.
+  - 근거: `Sources/BosCore/Schemas.swift`, `Sources/BosCore/OnboardingConfiguration.swift`, `Sources/BosCLI/main.swift`
+- PlanEngine은 onboarding metadata precedence를 profile 기준으로 해석한다.
+  - 근거: `Sources/BosCore/PlanEngine.swift`, `Tests/CoreTests/PlanEngineIntegrationTests.swift`
+- Blueprint release metadata는 `appName`, `sku`, `primaryLanguage`, `companyName`까지 additive 확장됐다.
+  - 근거: `Sources/BosCore/Schemas.swift`, `Tests/CoreTests/SchemaValidationTests.swift`
+- `app-register`는 App Store Connect native API backend로 구현됐다.
+  - 근거: `Sources/BosCore/AppRegistrationEngine.swift`
+- `release-run`은 fastlane lanes를 bos-owned CLI surface로 래핑한다.
+  - 근거: `Sources/BosCore/ReleaseRunEngine.swift`, `Sources/BosCore/ReleaseInitEngine.swift`, `Tests/CoreTests/ReleaseRunEngineIntegrationTests.swift`
+- 실제 live run에서 App Store Connect auth와 `match` repo reachability는 성공했지만, empty repo에서는 `readonly-certs`가 실패했다.
+  - 근거: `/tmp/bos-live-release-check-NjEPZU/.bos/artifacts/release-check/release-check-20260309011343.log`
+  - 근거: `/tmp/bos-live-release-check-NjEPZU/.bos/artifacts/release-check/release-check-20260309011352.log`
+- 실제 live run에서 기존 앱 `com.axient.aether`에 대해 `app-register` idempotent existing-path를 검증했다.
+  - 근거: `/tmp/bos-live-app-register-iVfLZ8/.bos/artifacts/app-register/app-register-20260309041242.log`
+- fastlane 공식 문서 기준 `produce` / `create_app_online`는 app registration에 `app_identifier`, `app_name`, `sku`, `language`를 요구한다.
+  - 근거: [fastlane `create_app_online`](https://docs.fastlane.tools/actions/create_app_online/)
+- fastlane 공식 문서 기준 `produce`의 App Store Connect API key 지원은 partial이다.
+  - 근거: [fastlane App Store Connect API support table](https://docs.fastlane.tools/app-store-connect-api/)
+- Apple 공식 문서 기준 새 앱 생성에는 app name, primary language, bundle ID, SKU가 필요하다.
+  - 근거: [Apple App Store Connect Help - Add a new app](https://developer.apple.com/help/app-store-connect/create-an-app-record/add-a-new-app/)
 
-## Out of Scope
-- GitHub Actions, 원격 캐시, 병렬 CI 매트릭스 최적화
-- 릴리즈 자동화 신기능(`release-init --run-certs`) 구현 자체
-- UX 카피/브랜딩 문구 고도화
+## Approach Comparison
+| Option | Summary | Pros | Cons | Decision |
+|---|---|---|---|---|
+| A | 현재처럼 PRD/CLI flag + 웹 수동 등록 유지 | 구현 범위가 가장 작다 | 사용자 onboarding이 끊기고, bundle id 이후 운영 흐름이 `bos` 밖으로 빠진다 | Reject |
+| B | `fastlane produce`를 public command로 그대로 노출 | 빠르게 붙일 수 있다 | fastlane auth/partial API support가 그대로 user contract가 되고, 운영 원칙이 외부 도구에 종속된다 | Reject |
+| C | `bos app-register`라는 bos-owned command를 추가하고 backend는 adapter로 숨긴다 | user contract를 단순하게 유지하면서 backend 교체가 가능하다. SSOT/profile 기반 운영 원칙과 가장 잘 맞는다 | 초기 설계 작업이 더 필요하고, backend feasibility spike가 선행돼야 한다 | Select |
+| D | `release-init` 또는 `plan`에 app registration까지 섞는다 | 명령 수는 적다 | 문서 생성/코드 생성/외부 시스템 write가 한 명령에 섞여 책임 경계가 깨진다 | Reject |
+
+## Decision Summary
+1. user-facing onboarding command는 `bos app-register`로 고정한다.
+   - 이유: `plan`/`apply`/`release-init`의 역할을 침범하지 않으면서, 앱 등록 책임을 가장 직관적으로 설명한다.
+2. non-secret 운영 SSOT는 `.bos/config/profile.yaml` 하나로 모은다.
+   - 포함: `companyName`, `appName`, `appIdentifier`, `appleTeamId`, `primaryLanguage`, `sku`, `matchGitURL`
+   - 제외: `ASC_*`, `MATCH_PASSWORD`
+3. metadata precedence는 `CLI override > profile.yaml > plan/prd marker > deterministic default`로 정한다.
+4. deterministic default는 추측 가능한 값에만 적용한다.
+   - `appName`: `projectName` fallback 허용
+   - `sku`: `companyName` 우선, 없으면 bundle id prefix seed fallback으로 자동 생성
+   - `primaryLanguage`: `en-US` 기본, `ko-KR` 선택 지원
+   - `companyName`: 자동 추정 금지, profile 관리값으로 둔다
+5. app registration backend는 adapter 뒤에 둔다.
+   - 결정: Swift-native App Store Connect HTTP client를 `NativeAppRegistrationProvider`로 채택한다.
+   - 이유: `fastlane produce`는 username/session 의존이 남아 있어 public contract와 맞지 않는다.
 
 ## Data Model
-1. `CommandContractSpec`
-- `command`: doctor|plan|apply|verify|release-init
-- `intent`: contract|behavior
-- `requiredFlags`, `defaultPaths`, `failureExitCode`, `sideEffectsAllowed`
+### Profile SSOT
+- 기존 `.bos/config/profile.yaml`를 유지하되 optional section을 추가한다.
+- 제안 구조:
 
-2. `TestIntentMatrix`
-- `testCase`: 테스트명
-- `intentType`: contract|behavior|integration
-- `externalDependency`: none|tuist|xcodebuild|fastlane
-- `timeoutBudgetSec`
+```yaml
+schemaVersion: 1
+name: default
+defaults:
+  deploymentTarget: "18.0"
+  appTargets:
+    controlsExtension: false
+    uiTests: true
+identity:
+  companyName: "Axiom Orient"
+  appName: "Daycraft"
+  appIdentifier: "com.axiomorient.daycraft"
+  appleTeamId: "8GT6LT258Y"
+release:
+  primaryLanguage: "en-US"
+  sku: "axiomorient.daycraft.3f1c8a2b"
+  matchGitURL: "https://github.com/axiom-orient/AppStoreConnect"
+featurePattern:
+  sourcesInterface: true
+  designFolder: false
+rules:
+  testingStyle: swift-testing
+  forbidPatterns:
+    - "@unchecked Sendable"
+    - "Date()"
+    - "UUID()"
+```
 
-3. `LegacyInventory`
-- `path`: 파일/문서 경로
-- `kind`: doc|code|flag|task
-- `status`: keep|remove|migrate
-- `rationale`, `evidence`
+### Secret Boundary
+- `.bos/config/signing.env`는 아래만 유지한다.
+  - `ASC_ISSUER_ID`
+  - `ASC_KEY_ID`
+  - `ASC_KEY_P8_BASE64`
+  - `MATCH_PASSWORD`
+- `MATCH_GIT_URL`는 profile의 `release.matchGitURL`로 이동하고, signing env에서는 backward-compatible fallback만 허용한다.
 
-4. `ReleaseGateChecklist`
-- `gateId`, `condition`, `evidenceCommand`, `pass/fail`
+### Blueprint Extension
+- `Blueprint.release.fastlane`에 다음 필드를 additive로 추가한다.
+  - `appName`
+  - `sku`
+  - `primaryLanguage`
+  - `companyName`
+- 기존 `appIdentifier`, `appleTeamId`는 유지한다.
+- schemaVersion은 1을 유지하고 optional/additive decode로 호환성을 지킨다.
 
-## Approach Options (3)
-1. Option A — 테스트만 패치(최소 수정)
-- 장점: 빠름
-- 단점: 계약/행동 경계가 계속 불명확하고 재발 가능성 큼
+### Derivation Rules
+- `appName`
+  - explicit 값 우선
+  - 없으면 `project.name`
+- `primaryLanguage`
+  - explicit 값 우선
+  - 없으면 `profile.release.primaryLanguage`
+  - 둘 다 없으면 `en-US`
+- `sku`
+  - explicit 값 우선
+  - 없으면 아래 규칙으로 deterministic 생성
+    - `companySlug = slug(companyName)`
+    - `appSlug = slug(appName)`
+    - `hash = sha256(appIdentifier).prefix(8)`
+    - 최종값: `companySlug.appSlug.hash`
+  - `companyName`이 없으면 자동 생성하지 않고 contract error로 실패
 
-2. Option B — 현재 구현을 유지하고 계약 테스트를 행동 테스트로 전환
-- 장점: 코드 변경 최소
-- 단점: 계약 검증이 사라져 실패 원인 분리가 약해짐
+### CLI Contract
+- 신규 명령:
+  - `bos app-register [--profile <path>] [--project-root <path>] [--app-name <name>] [--app-identifier <id>] [--apple-team-id <team>] [--company-name <name>] [--primary-language <code>] [--sku <value>] [--format human|json]`
+- 최소 권장 사용:
+  - profile에 team/company/language를 넣고
+  - app별로 `appIdentifier`, `appName`만 채운 뒤
+  - `bos app-register`
+- 출력 payload:
+  - `command`
+  - `status`
+  - `exitCode`
+  - `summary`
+  - `appIdentifier`
+  - `appName`
+  - `sku`
+  - `primaryLanguage`
+  - `artifacts`
 
-3. Option C — 계약 명세 고정 + 테스트 계층 분리 + 레거시 정리(권장)
-- 장점: 구현과 검증의 대응관계가 명확해지고 출시 판단이 단순해짐
-- 단점: 초기 정리 비용이 필요
+### Backend Adapter
+- 내부 protocol:
+  - `AppRegistrationProviding`
+- 후보 구현:
+  - `NativeAppRegistrationProvider`
+- user contract는 provider 종류를 노출하지 않는다.
+- 현재 선택:
+  - `NativeAppRegistrationProvider`를 기본 구현으로 채택
+  - `fastlane produce` adapter는 구현하지 않음
 
-## Decision
-- Option C 채택.
-- 이유: “실제 구현이 중요하고 정확히 테스트해야 한다”는 요구를 충족하려면 테스트 의도 분리가 선행되어야 한다.
-- `verify`는 실행형 계약을 유지한다(무인자 실행 허용). 대신 계약 테스트에서 `verify`를 제외하고, `verify`는 행동/통합 테스트에서만 검증한다.
-
-## Priority Matrix (Urgent/Important)
-- Urgent + Important
-  - `verify` 계약 회귀 수정
-  - CLI 계약 테스트 deterministic 보장
-- Important + Not Urgent
-  - 레거시 문서/코드 정리
-  - 중기 신기능 백로그 정리(`--smoke`, `--run-certs`)
-- Urgent + Less Important
-  - 테스트 로그 포맷 미세 개선
-- Less Important
-  - 문구/표현 리라이팅
+## Priority Matrix
+| Quadrant | Items |
+|---|---|
+| Urgent + Important | profile SSOT schema, PlanEngine precedence, `app-register` command contract, backend feasibility gate |
+| Important + Not Urgent | `MATCH_GIT_URL` migration, docs refresh, live disposable bundle-id runbook |
+| Urgent + Not Important | 없음. onboarding을 release-init에 억지로 섞는 우회는 배제 |
+| Later | multi-language expansion beyond `en-US`/`ko-KR`, multi-app management, CI onboarding pipeline |
 
 ## Critical Path
-1. `verify` 계약(실패 코드/사이드이펙트 허용 여부) 확정
-2. 계약 테스트와 행동 테스트 분리
-3. 레거시 항목 제거 목록 확정 및 반영
-4. 최소 출시 게이트 실행(핵심 테스트 세트 + 명령 증거)
+1. SSOT schema와 precedence를 먼저 고정한다.
+2. plan/blueprint 데이터 모델을 확장한다.
+3. app registration backend feasibility를 결정한다.
+4. `bos app-register` command를 구현한다.
+5. release-init / release-check가 profile SSOT를 읽도록 연결한다.
+6. regression tests와 disposable live registration으로 계약을 검증한다.
 
 ## Decision Gates
-- Gate-1 Contract Freeze
-  - `CommandContractSpec`가 문서/테스트에 반영됨
-- Gate-2 Test Determinism
-  - 계약 테스트가 100% 외부툴 비의존으로 종료됨
-- Gate-3 Legacy Cleanup
-  - 제거 대상 문서/코드가 반영되고 기준 문서가 일치함
-- Gate-4 Release Readiness
-  - 필수 테스트 세트 통과 + 실패 시 원인 분류 가능
-
-## Release Gate Checklist (REL-001)
-| Gate ID | Condition | Evidence Command | Result |
+| Gate ID | Question | Decision Rule | Owner |
 |---|---|---|---|
-| RG-1 | CLI 계약 실패는 parseable JSON + 빠른 종료 | `swift test --filter CoreTests.CLIJsonOutputIntegrationTests` | PASS |
-| RG-2 | signing env 누락/형식 오류는 preflight에서 사전 차단 | `swift test --filter 'CoreTests\\.(DoctorEngineIntegrationTests|ReleaseInitEngineIntegrationTests|CLIJsonOutputIntegrationTests)'` | PASS |
-| RG-3 | 핵심 엔진 경로(`plan/apply/verify/release-init/doctor`) 무회귀 | `swift test --filter 'CoreTests\\.(ApplyEngineIntegrationTests|PlanEngineIntegrationTests|VerifyEngineIntegrationTests|ReleaseInitEngineIntegrationTests|DoctorEngineIntegrationTests|SchemaValidationTests|ProfilePolicyE2ETests)'` | PASS |
-| RG-4 | 동일 P0 테스트 세트 3회 연속 동일 결과 | `swift test --filter 'CoreTests\\.(CLIJsonOutputIntegrationTests|DoctorEngineIntegrationTests|ReleaseInitEngineIntegrationTests|ApplyEngineIntegrationTests|PlanEngineIntegrationTests|VerifyEngineIntegrationTests|SchemaValidationTests|ProfilePolicyE2ETests)'` x3 | PASS |
-| RG-5 | 전체 회귀 1회 확인 | `swift test` | PASS |
+| DG-1 | non-secret SSOT를 어디에 둘 것인가? | `.bos/config/profile.yaml` 하나로 통일하고 secret은 signing env에 남긴다 | Maintainer |
+| DG-2 | app registration backend를 무엇으로 시작할 것인가? | 결정 완료. Swift-native App Store Connect API backend를 채택 | Maintainer |
+| DG-3 | 어떤 값까지 자동 생성할 것인가? | `appName`, `primaryLanguage`, `sku`만 deterministic/default 허용, `companyName`은 자동 추정 금지 | Maintainer |
+| DG-4 | `MATCH_GIT_URL`를 어디에 둘 것인가? | profile SSOT로 이동하고 signing env fallback을 한 버전 유지 | Maintainer |
 
 ## Execution Phases
-### Phase 1 — 계약 확정 (P0)
-- 대상 TASK-ID: `QA-001`, `QA-002`
-- 산출물: 명령별 계약표, 테스트 의도 매핑표
-- 검증: 계약 테스트 단독 실행 시 외부 툴 프로세스 미생성
+### Phase 1. SSOT Schema and Compatibility
+- 대상 TASK-ID: `CFG-010`, `CFG-011`
+- 산출물:
+  - `Profile` optional section 추가
+  - default profile template 확장
+  - `MATCH_GIT_URL` migration rule 정의
+- verification:
+  - 기존 profile 없이도 default 생성
+  - 기존 schemaVersion 1 profile이 그대로 decode
+  - new optional fields가 없어도 동작
 
-### Phase 2 — 테스트 정확도 강화 (P0)
-- 대상 TASK-ID: `QA-003`, `QA-004`
-- 산출물: 계약/행동/통합 테스트 경계 확정, timeout 정책
-- 검증: flaky 없이 로컬 반복 3회 동일 결과
+### Phase 2. Plan / Blueprint Metadata Expansion
+- 대상 TASK-ID: `PLAN-010`, `PLAN-011`
+- 산출물:
+  - `PlanEngine` precedence 재정의
+  - PRD marker 추가: `Company Name`, `App Name`, `Primary Language`, `SKU`
+  - Blueprint release metadata additive 확장
+- verification:
+  - `App Identifier`, `Apple Team ID`가 profile에 있으면 PRD에서 빠져도 blueprint 생성
+  - explicit PRD/CLI 값이 profile보다 우선
 
-### Phase 3 — 레거시/노이즈 제거 (P1)
-- 대상 TASK-ID: `LEG-001`, `LEG-002`, `LEG-003`, `DOC-002`
-- 산출물: 제거 목록 반영, 문서 최소화
-- 검증: 기준 문서와 코드 상태 불일치 0건
+### Phase 3. App Registration Command
+- 대상 TASK-ID: `APP-010`, `APP-011`
+- 산출물:
+  - `bos app-register`
+  - metadata validation / deterministic SKU generation
+  - backend adapter + one implementation
+- verification:
+  - command JSON contract
+  - missing company/appIdentifier/appName contract errors
+  - generated SKU determinism
+  - safe live `existing/existing` run
 
-### Phase 4 — 출시 게이트 (P0)
-- 대상 TASK-ID: `REL-001`, `REL-002`, `REL-003`
-- 산출물: 출시 체크리스트와 증거 로그
-- 검증: 게이트 항목 모두 pass, 그리고 `P0/P1` 오픈 태스크 0개
+### Phase 4. Release Flow Alignment
+- 대상 TASK-ID: `REL-010`
+- 산출물:
+  - `release-init` / `release-check`가 profile.release metadata를 병합해서 사용
+  - `Matchfile` generation이 profile `matchGitURL`를 사용
+  - signing env는 secret-only로 축소
+- verification:
+  - existing signing flow regression 없음
+  - profile only path와 legacy signing env fallback path 모두 테스트
+
+### Phase 5. QA / Docs / Live Validation
+- 대상 TASK-ID: `QA-010`, `DOC-010`, `REL-011`
+- 산출물:
+  - integration tests
+  - README / PRODUCT_GUIDE / TESTING_GUIDE 갱신
+  - disposable bundle id live run 기록
+- verification:
+  - `swift test`
+  - `swift build -c release`
+  - 실제 temp workspace에서 `plan -> apply -> app-register -> release-init -> release-check`
 
 ## Verification Strategy
-1. 계약 검증
-- `doctor/plan/apply/release-init`의 인자 계약 오류가 즉시 `exitCode=2`로 귀결되는지 확인
-- `verify`의 계약 실패/행동 실패 분기 기준을 명시하고 테스트로 고정
+1. Schema / precedence regression
+- 목적: profile SSOT와 legacy inputs가 함께 유지되는지 확인
+- 예상 명령:
+  - `swift test --filter SchemaValidationTests`
+  - `swift test --filter PlanEngineIntegrationTests`
 
-2. 행동 검증
-- 외부 툴 호출이 필요한 테스트는 명시적 timeout과 실패 분류 코드를 검증
+2. Command contract regression
+- 목적: `app-register` parse, JSON payload, derivation, error taxonomy 고정
+- 예상 명령:
+  - `swift test --filter CLIJsonOutputIntegrationTests`
+  - `swift test --filter AppRegistrationIntegrationTests`
 
-3. 통합 검증
-- 핵심 시나리오: `doctor -> plan -> apply(init) -> verify -> release-init`에서 산출물 경로와 상태 파일 동기화 확인
+3. Release alignment regression
+- 목적: `release-init` / `release-check`가 new SSOT를 읽고 legacy fallback도 깨지지 않는지 확인
+- 예상 명령:
+  - `swift test --filter ReleaseInitEngineIntegrationTests`
+  - `swift test --filter ReleaseCheckEngineIntegrationTests`
 
-4. 반복 검증
-- P0 관련 테스트 세트를 연속 3회 실행해 동일 결과 확인
+4. Disposable live validation
+- 목적: idempotent existing-path와 first writable seed를 분리해 검증한다.
+- 실제로 완료한 시나리오:
+  - temp workspace 준비
+  - 기존 앱 `com.axient.aether`로 `bos app-register --format json`
+  - 결과: `bundleIdStatus=existing`, `appStatus=existing`
+- 남은 시나리오:
+  - disposable or real target app 준비
+  - `bos plan`
+  - `bos apply --mode init`
+  - `bos app-register`
+  - `bos release-init`
+  - `bos release-check --mode sync-certs --allow-write`
+
+## Current Status
+- `release-check` 기반 release readiness gate는 이미 구현 완료 상태다.
+- onboarding SSOT, plan precedence, `app-register`, release alignment, docs, automated regression은 구현 완료 상태다.
+- live evidence 기준으로는 App Store Connect auth, `match` repo reachability, `app-register` existing-path까지 확인됐다.
+- 남은 external write gate는 first signing seed(`release-check --mode sync-certs --allow-write`)뿐이다.
 
 ## Risk/Rollback
-- Risk: 계약 변경으로 기존 사용자 스크립트가 깨질 수 있음
-  - Rollback: 플래그 계약을 이전 동작으로 임시 복원하고 deprecation 경고 추가
-- Risk: 테스트 분리 중 중복/누락 발생
-  - Rollback: 기존 테스트를 quarantine 태그로 잠시 유지 후 단계적 대체
-- Risk: 문서 축소 시 운영 지식 유실
-  - Rollback: 제거 전 핵심 정보를 `PRODUCT_GUIDE`로 병합 후 삭제
-
-## Evidence Snapshot (현재 기준)
-- 코드 상태: `Sources/BosCLI/main.swift`, `Sources/BosCore/*.swift`
-- 테스트 상태:
-  - `swift test --filter CoreTests.CLIJsonOutputIntegrationTests` 통과(17 tests, 0 failures)
-  - P0 테스트 세트 3회 반복 통과(각 64 tests, 0 failures; 2026-03-05 19:30:59 / 19:32:18 / 19:33:36 KST)
-  - `swift test` 전체 통과(65 tests, 0 failures; 2026-03-05 19:38:13 KST 시작)
-- 이번 사이클 해결:
-  - 런타임 아티팩트 경로의 하드코딩을 제거하고 `<project-root>/.bos/artifacts/<command>/` 단일 경로로 통일
-  - signing env 문법 오류를 `doctor`(6) / `release-init`(5) 실패 코드로 분리하고 raw `NSError` 노출을 사용자 메시지로 치환
-  - signing env 템플릿 파일 권한을 owner-only(`0600`)로 생성/보정하고 회귀 테스트로 고정
-  - signing env 파서가 빈 줄/주석을 포함한 원본 줄번호를 그대로 보고하도록 보정
-  - 실행 아티팩트 폴더를 매 실행 초기화하지 않고 최근 N개 보존 정책으로 전환
-  - 보존 정책 상한(최근 120개 유지)이 초과 상황에서 정상 prune되는지 단위 테스트로 고정
-  - `.gitignore`/README/PRODUCT_GUIDE를 새 아티팩트 정책과 권한 정책에 동기화
-
-## Completed Next Slice (Option-2 정밀화)
-- 목표:
-  - signing env 파서가 빈 줄/주석을 포함한 원본 줄번호를 정확히 보고하도록 수정
-  - `.bos/artifacts/<command>/`에 대해 최근 N개 보존(무제한 증가/즉시 삭제 모두 방지)
-- 대상 TASK-ID:
-  - `UX-005`, `OPS-001` (DONE)
+- Risk: App Store Connect API role/권한 차이 때문에 live create path가 계정마다 다를 수 있다.
+  - Mitigation: safe existing-path 검증과 writable seed 검증을 분리한다.
+- Risk: profile에 onboarding metadata를 넣으면서 scope가 과도하게 커질 수 있다.
+  - Mitigation: MVP는 app registration에 필요한 최소 필드만 추가한다.
+- Risk: `MATCH_GIT_URL` 이동이 기존 release users를 깨뜨릴 수 있다.
+  - Mitigation: 한 버전 동안 signing env fallback을 유지한다.
+- Risk: deterministic SKU 규칙이 운영자가 기대한 naming과 다를 수 있다.
+  - Mitigation: explicit `sku` override를 허용하고 auto-generated value를 profile에 backfill한다.
+- Rollback:
+  - `bos app-register`는 additive command이므로 문제가 생기면 command를 숨기거나 backend만 교체할 수 있다.
+  - profile optional field는 제거하지 않고 무시해도 기존 `plan/apply/release-*` 경로는 유지된다.

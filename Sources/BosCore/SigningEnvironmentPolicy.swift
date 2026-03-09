@@ -27,10 +27,13 @@ public struct SigningEnvironmentCheckResult: Equatable, Sendable {
 }
 
 public enum SigningEnvironmentPolicy {
-    public static let requiredKeys: [String] = [
+    public static let appStoreConnectRequiredKeys: [String] = [
         "ASC_ISSUER_ID",
         "ASC_KEY_ID",
-        "ASC_KEY_P8_BASE64",
+        "ASC_KEY_P8_BASE64"
+    ]
+
+    public static let requiredKeys: [String] = appStoreConnectRequiredKeys + [
         "MATCH_GIT_URL",
         "MATCH_PASSWORD"
     ]
@@ -38,7 +41,27 @@ public enum SigningEnvironmentPolicy {
     public static let expectedRuleSummary =
         "ASC_ISSUER_ID(uuid), ASC_KEY_ID([A-Z0-9]{10}), ASC_KEY_P8_BASE64(base64), MATCH_GIT_URL(git|https|ssh), MATCH_PASSWORD(non-empty)"
 
+    public static let appStoreConnectRuleSummary =
+        "ASC_ISSUER_ID(uuid), ASC_KEY_ID([A-Z0-9]{10}), ASC_KEY_P8_BASE64(base64)"
+
     public static func validate(environment: [String: String]) -> SigningEnvironmentCheckResult {
+        validate(environment: environment, requiredKeys: requiredKeys, includeMatchGitURLValidation: true)
+    }
+
+    public static func validateAppStoreConnect(environment: [String: String]) -> SigningEnvironmentCheckResult {
+        validate(environment: environment, requiredKeys: appStoreConnectRequiredKeys, includeMatchGitURLValidation: false)
+    }
+}
+
+private extension SigningEnvironmentPolicy {
+    nonisolated(unsafe) static let uuidRegex = #/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/#
+    nonisolated(unsafe) static let keyIdRegex = #/[A-Z0-9]{10}/#
+
+    static func validate(
+        environment: [String: String],
+        requiredKeys: [String],
+        includeMatchGitURLValidation: Bool
+    ) -> SigningEnvironmentCheckResult {
         let missing = requiredKeys.filter { key in
             guard let value = environment[key] else { return true }
             return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -47,7 +70,7 @@ public enum SigningEnvironmentPolicy {
         var invalid: [SigningEnvironmentIssue] = []
 
         if let raw = normalizedValue(for: "ASC_ISSUER_ID", in: environment),
-           !matches(raw, regex: uuidRegex) {
+           raw.wholeMatch(of: uuidRegex) == nil {
             invalid.append(
                 SigningEnvironmentIssue(
                     key: "ASC_ISSUER_ID",
@@ -58,7 +81,7 @@ public enum SigningEnvironmentPolicy {
         }
 
         if let raw = normalizedValue(for: "ASC_KEY_ID", in: environment),
-           !matches(raw, regex: keyIdRegex) {
+           raw.wholeMatch(of: keyIdRegex) == nil {
             invalid.append(
                 SigningEnvironmentIssue(
                     key: "ASC_KEY_ID",
@@ -79,7 +102,8 @@ public enum SigningEnvironmentPolicy {
             )
         }
 
-        if let raw = normalizedValue(for: "MATCH_GIT_URL", in: environment),
+        if includeMatchGitURLValidation,
+           let raw = normalizedValue(for: "MATCH_GIT_URL", in: environment),
            !isValidGitURL(raw) {
             invalid.append(
                 SigningEnvironmentIssue(
@@ -95,23 +119,11 @@ public enum SigningEnvironmentPolicy {
             invalidIssues: invalid.sorted { lhs, rhs in lhs.key < rhs.key }
         )
     }
-}
-
-private extension SigningEnvironmentPolicy {
-    static let uuidRegex = try! NSRegularExpression(
-        pattern: #"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"#
-    )
-    static let keyIdRegex = try! NSRegularExpression(pattern: #"^[A-Z0-9]{10}$"#)
 
     static func normalizedValue(for key: String, in environment: [String: String]) -> String? {
         guard let value = environment[key] else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    static func matches(_ value: String, regex: NSRegularExpression) -> Bool {
-        let range = NSRange(value.startIndex..<value.endIndex, in: value)
-        return regex.firstMatch(in: value, range: range) != nil
     }
 
     static func isValidGitURL(_ value: String) -> Bool {

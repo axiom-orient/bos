@@ -32,14 +32,20 @@ struct SchemaValidationTests {
           "release": {
             "fastlane": {
               "appIdentifier": "com.axiomorient.daycraft",
-              "appleTeamId": "A1B2C3D4E5"
+              "appleTeamId": "A1B2C3D4E5",
+              "appName": "Daycraft",
+              "sku": "axiom-orient.daycraft.04805b02",
+              "primaryLanguage": "ko-KR",
+              "companyName": "Axiom Orient"
             }
           }
         }
         """
-        let model = try decoder.decode(BlueprintV1.self, from: Data(json.utf8))
+        let model = try decoder.decode(Blueprint.self, from: Data(json.utf8))
         #expect(model.schemaVersion == 1)
         #expect(model.release.fastlane.appleTeamId == "A1B2C3D4E5")
+        #expect(model.release.fastlane.appName == "Daycraft")
+        #expect(model.release.fastlane.primaryLanguage == "ko-KR")
     }
 
     @Test func blueprintV1FailsOnUnknownTopLevelKey() throws {
@@ -76,11 +82,11 @@ struct SchemaValidationTests {
         """
 
         do {
-            _ = try decoder.decode(BlueprintV1.self, from: Data(json.utf8))
+            _ = try decoder.decode(Blueprint.self, from: Data(json.utf8))
             Issue.record("expected SchemaValidationError.unknownKeys to be thrown")
         } catch let error as SchemaValidationError {
             if case .unknownKeys(let schema, let keys) = error {
-                #expect(schema == "BlueprintV1")
+                #expect(schema == "Blueprint")
                 #expect(keys == ["unexpected"])
             } else {
                 Issue.record("unexpected SchemaValidationError: \(error)")
@@ -100,6 +106,17 @@ struct SchemaValidationTests {
               "uiTests": true
             }
           },
+          "identity": {
+            "companyName": "Axiom Orient",
+            "appName": "Daycraft",
+            "appIdentifier": "com.axiomorient.daycraft",
+            "appleTeamId": "A1B2C3D4E5"
+          },
+          "release": {
+            "primaryLanguage": "ko-KR",
+            "sku": "axiom-orient.daycraft.04805b02",
+            "matchGitURL": "https://github.com/axiom-orient/AppStoreConnect"
+          },
           "featurePattern": {
             "sourcesInterface": true,
             "designFolder": true
@@ -110,9 +127,11 @@ struct SchemaValidationTests {
           }
         }
         """
-        let model = try decoder.decode(ProfileV1.self, from: Data(json.utf8))
+        let model = try decoder.decode(Profile.self, from: Data(json.utf8))
         #expect(model.name == "daycraft")
         #expect(model.defaults.appTargets.controlsExtension == true)
+        #expect(model.identity.companyName == "Axiom Orient")
+        #expect(model.release.primaryLanguage == "ko-KR")
     }
 
     @Test func profileV1FailsOnUnknownNestedKey() throws {
@@ -140,57 +159,12 @@ struct SchemaValidationTests {
         """
 
         do {
-            _ = try decoder.decode(ProfileV1.self, from: Data(json.utf8))
+            _ = try decoder.decode(Profile.self, from: Data(json.utf8))
             Issue.record("expected SchemaValidationError.unknownKeys to be thrown")
         } catch let error as SchemaValidationError {
             if case .unknownKeys(let schema, let keys) = error {
-                #expect(schema == "ProfileV1.defaults.appTargets")
+                #expect(schema == "Profile.defaults.appTargets")
                 #expect(keys == ["extra"])
-            } else {
-                Issue.record("unexpected SchemaValidationError: \(error)")
-            }
-        }
-    }
-
-    @Test func toolchainLockV1DecodesValidPayload() throws {
-        let json = """
-        {
-          "schemaVersion": 1,
-          "swift": "6.0",
-          "tuist": "4.153.1",
-          "fastlane": "2.228.0",
-          "tmaPluginRef": {
-            "type": "git-sha",
-            "value": "7c00394f304f966f4ce621a7b72f2b3b19789509"
-          }
-        }
-        """
-        let model = try decoder.decode(ToolchainLockV1.self, from: Data(json.utf8))
-        #expect(model.tuist == "4.153.1")
-    }
-
-    @Test func toolchainLockV1FailsOnUnknownNestedKey() throws {
-        let json = """
-        {
-          "schemaVersion": 1,
-          "swift": "6.0",
-          "tuist": "4.153.1",
-          "fastlane": "2.228.0",
-          "tmaPluginRef": {
-            "type": "git-sha",
-            "value": "abc",
-            "revision": "main"
-          }
-        }
-        """
-
-        do {
-            _ = try decoder.decode(ToolchainLockV1.self, from: Data(json.utf8))
-            Issue.record("expected SchemaValidationError.unknownKeys to be thrown")
-        } catch let error as SchemaValidationError {
-            if case .unknownKeys(let schema, let keys) = error {
-                #expect(schema == "ToolchainLockV1.tmaPluginRef")
-                #expect(keys == ["revision"])
             } else {
                 Issue.record("unexpected SchemaValidationError: \(error)")
             }
@@ -204,17 +178,17 @@ struct SchemaValidationTests {
           "tools": {
             "swift": {
               "versionRule": { "kind": "semver-range", "value": ">=6.0 <7.0" },
-              "requiredFor": ["plan", "apply", "verify", "release-init"],
+              "requiredFor": ["plan", "apply", "verify", "release-init", "release-run"],
               "installHints": ["xcode-select --install", "brew install swift"]
             },
             "tuist": {
               "versionRule": { "kind": "semver-range", "value": ">=4.0 <5.0" },
-              "requiredFor": ["apply", "verify"],
+              "requiredFor": ["apply", "verify", "release-run"],
               "installHints": ["brew install tuist"]
             },
             "fastlane": {
               "versionRule": { "kind": "semver-range", "value": ">=2.0 <3.0" },
-              "requiredFor": ["release-init"],
+              "requiredFor": ["release-init", "release-check", "release-run"],
               "installHints": ["brew install fastlane", "gem install fastlane -NV"]
             }
           },
@@ -224,9 +198,10 @@ struct SchemaValidationTests {
           }
         }
         """
-        let model = try decoder.decode(ToolchainLockV2.self, from: Data(json.utf8))
+        let model = try decoder.decode(ToolchainLock.self, from: Data(json.utf8))
         #expect(model.schemaVersion == 2)
-        #expect(model.tools.tuist.requiredFor == ["apply", "verify"])
+        #expect(model.tools.tuist.requiredFor == ["apply", "verify", "release-run"])
+        #expect(model.tools.fastlane.requiredFor == ["release-init", "release-check", "release-run"])
     }
 
     @Test func toolchainLockV2FailsOnUnknownToolKey() throws {
@@ -263,11 +238,11 @@ struct SchemaValidationTests {
         """
 
         do {
-            _ = try decoder.decode(ToolchainLockV2.self, from: Data(json.utf8))
+            _ = try decoder.decode(ToolchainLock.self, from: Data(json.utf8))
             Issue.record("expected SchemaValidationError.unknownKeys to be thrown")
         } catch let error as SchemaValidationError {
             if case .unknownKeys(let schema, let keys) = error {
-                #expect(schema == "ToolchainLockV2.tools")
+                #expect(schema == "ToolchainLock.tools")
                 #expect(keys == ["ruby"])
             } else {
                 Issue.record("unexpected SchemaValidationError: \(error)")
@@ -292,8 +267,65 @@ struct SchemaValidationTests {
           }
         }
         """
-        let model = try decoder.decode(BootstrapLockV1.self, from: Data(json.utf8))
+        let model = try decoder.decode(BootstrapLock.self, from: Data(json.utf8))
         #expect(model.verifySummary.status == "passed")
+        #expect(model.releaseCheckSummary == nil)
+        #expect(model.releaseRunSummary == nil)
+    }
+
+    @Test func bootstrapLockV1DecodesOptionalReleaseCheckSummary() throws {
+        let json = """
+        {
+          "appliedAt": "2026-03-04T10:00:00Z",
+          "blueprintHash": "abc123",
+          "profileHash": "def456",
+          "managedFiles": ["Projects/App/Project.swift"],
+          "verifySummary": {
+            "status": "passed",
+            "message": "tuist/xcodebuild ok"
+          },
+          "releaseSummary": {
+            "status": "skipped",
+            "message": "release-init not requested"
+          },
+          "releaseCheckSummary": {
+            "status": "passed",
+            "message": "release-check ok"
+          }
+        }
+        """
+        let model = try decoder.decode(BootstrapLock.self, from: Data(json.utf8))
+        #expect(model.releaseCheckSummary?.status == "passed")
+        #expect(model.releaseRunSummary == nil)
+    }
+
+    @Test func bootstrapLockV1DecodesOptionalReleaseRunSummary() throws {
+        let json = """
+        {
+          "appliedAt": "2026-03-04T10:00:00Z",
+          "blueprintHash": "abc123",
+          "profileHash": "def456",
+          "managedFiles": ["Projects/App/Project.swift"],
+          "verifySummary": {
+            "status": "passed",
+            "message": "tuist/xcodebuild ok"
+          },
+          "releaseSummary": {
+            "status": "skipped",
+            "message": "release-init not requested"
+          },
+          "releaseCheckSummary": {
+            "status": "passed",
+            "message": "release-check ok"
+          },
+          "releaseRunSummary": {
+            "status": "passed",
+            "message": "release-run ok"
+          }
+        }
+        """
+        let model = try decoder.decode(BootstrapLock.self, from: Data(json.utf8))
+        #expect(model.releaseRunSummary?.status == "passed")
     }
 
     @Test func bootstrapLockV1FailsOnUnknownTopLevelKey() throws {
@@ -310,11 +342,11 @@ struct SchemaValidationTests {
         """
 
         do {
-            _ = try decoder.decode(BootstrapLockV1.self, from: Data(json.utf8))
+            _ = try decoder.decode(BootstrapLock.self, from: Data(json.utf8))
             Issue.record("expected SchemaValidationError.unknownKeys to be thrown")
         } catch let error as SchemaValidationError {
             if case .unknownKeys(let schema, let keys) = error {
-                #expect(schema == "BootstrapLockV1")
+                #expect(schema == "BootstrapLock")
                 #expect(keys == ["extra"])
             } else {
                 Issue.record("unexpected SchemaValidationError: \(error)")

@@ -8,8 +8,8 @@ public enum ApplyMode: String, Sendable {
 
 public struct ApplyRequest: Sendable {
     public let projectRoot: URL
-    public let blueprint: BlueprintV1
-    public let profile: ProfileV1
+    public let blueprint: Blueprint
+    public let profile: Profile
     public let mode: ApplyMode
     public let fix: Bool
     public let bundleIdPrefixOverride: String?
@@ -17,8 +17,8 @@ public struct ApplyRequest: Sendable {
 
     public init(
         projectRoot: URL,
-        blueprint: BlueprintV1,
-        profile: ProfileV1,
+        blueprint: Blueprint,
+        profile: Profile,
         mode: ApplyMode = .initMode,
         fix: Bool = false,
         bundleIdPrefixOverride: String? = nil,
@@ -215,7 +215,7 @@ extension ApplyEngine {
         )
     }
 
-    private func scaffoldModules(root: URL, blueprint: BlueprintV1, bundleIdPrefix: String, teamID: String?) throws {
+    private func scaffoldModules(root: URL, blueprint: Blueprint, bundleIdPrefix: String, teamID: String?) throws {
         try installTMAPluginIfMissing(root: root)
         try installProjectBootstrapFilesIfMissing(root: root)
         try writeRootTuistFilesIfMissing(root: root, workspaceName: blueprint.project.name)
@@ -419,7 +419,7 @@ extension ApplyEngine {
 
     private func scaffoldAppIfNeeded(
         root: URL,
-        blueprint: BlueprintV1,
+        blueprint: Blueprint,
         appName: String,
         rootFeatureName: String,
         bundleIdPrefix: String,
@@ -436,13 +436,16 @@ extension ApplyEngine {
             blueprint: blueprint,
             bundleIdPrefix: bundleIdPrefix,
             teamID: teamID
-        ) + ["--root-feature-name", rootFeatureName]
+        ) + [
+            "--root-feature-name", rootFeatureName,
+            "--app-identifier", blueprint.release.fastlane.appIdentifier
+        ]
         try runScaffold(command: command, in: root)
     }
 
     private func scaffoldLayerModulesIfNeeded(
         root: URL,
-        blueprint: BlueprintV1,
+        blueprint: Blueprint,
         template: String,
         layerFolder: String,
         moduleNames: [String],
@@ -466,7 +469,7 @@ extension ApplyEngine {
         }
     }
 
-    private func baseScaffoldCommand(template: String, name: String, blueprint: BlueprintV1, bundleIdPrefix: String, teamID: String?) -> [String] {
+    private func baseScaffoldCommand(template: String, name: String, blueprint: Blueprint, bundleIdPrefix: String, teamID: String?) -> [String] {
         var command = [
             "tuist", "scaffold", template,
             "--name", name,
@@ -496,7 +499,7 @@ extension ApplyEngine {
         }
     }
 
-    private func appCompositionTemplate(from blueprint: BlueprintV1) -> String {
+    private func appCompositionTemplate(from blueprint: Blueprint) -> String {
         let block = managedBlockString(from: blueprint)
         return [
             "import Dependencies",
@@ -512,7 +515,7 @@ extension ApplyEngine {
         ].joined(separator: "\n")
     }
 
-    private func managedBlockString(from blueprint: BlueprintV1) -> String {
+    private func managedBlockString(from blueprint: Blueprint) -> String {
         var lines: [String] = []
         lines.append("        \(Constant.beginMarker)")
         lines.append(contentsOf: managedDependencyEntries(from: blueprint).map { "        // \($0)" })
@@ -520,7 +523,7 @@ extension ApplyEngine {
         return lines.joined(separator: "\n")
     }
 
-    private func managedDependencyEntries(from blueprint: BlueprintV1) -> [String] {
+    private func managedDependencyEntries(from blueprint: Blueprint) -> [String] {
         var result: [String] = []
         result.reserveCapacity(
             blueprint.modules.features.count +
@@ -584,8 +587,8 @@ extension ApplyEngine {
 
     private func persistApplyResult(
         root: URL,
-        blueprint: BlueprintV1,
-        profile: ProfileV1,
+        blueprint: Blueprint,
+        profile: Profile,
         managedPath: String,
         summary: String
     ) throws -> ApplyResult {
@@ -617,8 +620,8 @@ extension ApplyEngine {
 
     private func writeBootstrapLock(
         to path: URL,
-        blueprint: BlueprintV1,
-        profile: ProfileV1,
+        blueprint: Blueprint,
+        profile: Profile,
         managedFiles: [String]
     ) throws {
         let blueprintHash = try sha256Hex(of: blueprint)
@@ -637,12 +640,18 @@ extension ApplyEngine {
         releaseSummary:
           status: "not-run"
           message: "release-init not executed in apply step"
+        releaseCheckSummary:
+          status: "not-run"
+          message: "release-check not executed in apply step"
+        releaseRunSummary:
+          status: "not-run"
+          message: "release-run not executed in apply step"
         """
         try RuntimeSupport.writeFile(to: path, content: content)
     }
 
     private func writeArtifact(to path: URL, summary: String, artifacts: [String]) throws {
-        let payload = CommandOutputV1(
+        let payload = CommandOutput(
             command: "apply",
             status: "success",
             exitCode: 0,

@@ -3,7 +3,7 @@ import ProjectDescription
 let organizationName = "{{ organizationName }}"
 let bundleIdPrefix = "{{ bundleIdPrefix }}"
 let appName = "{{ name }}"
-let appBundleId = "\(bundleIdPrefix).{{ name | lowercase }}"
+let appBundleId = "{% if appIdentifier != "" %}{{ appIdentifier }}{% else %}{{ bundleIdPrefix }}.{{ name | lowercase }}{% endif %}"
 let deploymentTarget: DeploymentTargets = .iOS("{{ deploymentTarget }}")
 {% if teamId != "" %}let teamID = "{{ teamId }}"{% endif %}
 
@@ -35,9 +35,9 @@ let baseSettings: SettingsDictionary = [
     "OTHER_SWIFT_FLAGS": .array(["$(inherited)", "-enable-upcoming-feature", "InferSendableFromCaptures"])
 ].merging(signingSettings) { _, new in new }
 
-let debugSigningOverrides: SettingsDictionary = [{% if teamId == "" %}
+let debugSigningOverrides: SettingsDictionary = [
     "CODE_SIGNING_ALLOWED": .string("NO"),
-    "CODE_SIGNING_REQUIRED": .string("NO"){% endif %}
+    "CODE_SIGNING_REQUIRED": .string("NO")
 ]
 
 let project = Project(

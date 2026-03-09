@@ -67,6 +67,8 @@ struct ApplyEngineIntegrationTests {
         let appProjectText = try String(contentsOf: root.appending(path: "Projects/App/Project.swift"), encoding: .utf8)
         #expect(appProjectText.contains(#"let teamID = "A1B2C3D4E5""#))
         #expect(appProjectText.contains(#""DEVELOPMENT_TEAM": .string(teamID)"#))
+        #expect(appProjectText.contains(#""CODE_SIGNING_ALLOWED": .string("NO")"#))
+        #expect(appProjectText.contains(#""CODE_SIGNING_REQUIRED": .string("NO")"#))
         let domainProjectText = try String(contentsOf: root.appending(path: "Projects/Domains/User/Project.swift"), encoding: .utf8)
         #expect(domainProjectText.contains(#"let teamID = "A1B2C3D4E5""#))
         #expect(domainProjectText.contains(#""DEVELOPMENT_TEAM": .string(teamID)"#))
@@ -375,31 +377,31 @@ private extension ApplyEngineIntegrationTests {
         domains: [String] = ["User"],
         services: [String] = ["Auth"],
         shared: [String] = ["Core", "DesignSystem"]
-    ) throws -> BlueprintV1 {
-        let project = try BlueprintV1.Project(
+    ) throws -> Blueprint {
+        let project = try Blueprint.Project(
             name: "Daycraft",
             bundleIdPrefix: "com.axiomorient",
             deploymentTarget: "18.0"
         )
-        let requirements = try BlueprintV1.Requirements(
+        let requirements = try Blueprint.Requirements(
             reqIds: ["REQ-001"],
             screens: ["SCR_TODAY", "SCR_CHAT"]
         )
-        let app = try BlueprintV1.AppModule(name: "Daycraft")
-        let modules = try BlueprintV1.Modules(
+        let app = try Blueprint.AppModule(name: "Daycraft")
+        let modules = try Blueprint.Modules(
             app: app,
             features: features,
             domains: domains,
             services: services,
             shared: shared
         )
-        let wiring = try BlueprintV1.Wiring(rootFeature: "Root")
-        let fastlane = try BlueprintV1.Fastlane(
+        let wiring = try Blueprint.Wiring(rootFeature: "Root")
+        let fastlane = try Blueprint.Fastlane(
             appIdentifier: "com.axiomorient.daycraft",
             appleTeamId: "A1B2C3D4E5"
         )
-        let release = BlueprintV1.Release(fastlane: fastlane)
-        return try BlueprintV1(
+        let release = Blueprint.Release(fastlane: fastlane)
+        return try Blueprint(
             schemaVersion: 1,
             project: project,
             requirements: requirements,
@@ -409,15 +411,15 @@ private extension ApplyEngineIntegrationTests {
         )
     }
 
-    func makeProfile() throws -> ProfileV1 {
-        let appTargets = ProfileV1.AppTargets(controlsExtension: true, uiTests: true)
-        let defaults = ProfileV1.Defaults(deploymentTarget: "18.0", appTargets: appTargets)
-        let pattern = ProfileV1.FeaturePattern(sourcesInterface: true, designFolder: true)
-        let rules = try ProfileV1.Rules(
+    func makeProfile() throws -> Profile {
+        let appTargets = Profile.AppTargets(controlsExtension: true, uiTests: true)
+        let defaults = Profile.Defaults(deploymentTarget: "18.0", appTargets: appTargets)
+        let pattern = Profile.FeaturePattern(sourcesInterface: true, designFolder: true)
+        let rules = try Profile.Rules(
             testingStyle: "swift-testing",
             forbidPatterns: ["@unchecked Sendable", "Date()", "UUID()"]
         )
-        return try ProfileV1(
+        return try Profile(
             schemaVersion: 1,
             name: "daycraft",
             defaults: defaults,

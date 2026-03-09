@@ -1,6 +1,6 @@
 import Foundation
 
-public struct CommandOutputV1: Codable, Sendable, Equatable {
+public struct CommandOutput: Codable, Sendable, Equatable {
     public let command: String
     public let status: String
     public let exitCode: Int
