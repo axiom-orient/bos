@@ -171,14 +171,15 @@ Modes:
 Mode semantics:
 
 - `connectivity`: ASC auth + `match` repo reachability
-- `readonly-certs`: connectivity + read-only cert fetch
-- `sync-certs`: connectivity + writable cert sync
+- `readonly-certs`: connectivity + read-only cert fetch + installed signing team validation
+- `sync-certs`: connectivity + writable cert sync + installed signing team validation
 
 Boundary:
 
 - `sync-certs` requires explicit `--allow-write`
 - `sync-certs` is an operational bootstrap for the first signing seed on an empty setup
 - product release readiness is decided by read-only live evidence plus automated regression, not by forcing a writable external side effect
+- if cert sync succeeds but the discovered signing team differs from `profile.identity.appleTeamId`, `release-check` fails early at `cert-sync`
 
 ### `release-run`
 

@@ -401,13 +401,15 @@ public struct ReleaseCheckEngine: Sendable {
                     : "certificate sync completed",
                 sanitizedEnvironment: sanitizedEnvironment
             )
-            records.append(certRecord)
-            logLines += logEntry(
-                for: certRecord,
-                stdout: sanitizeSecrets(certResult.stdout, environment: sanitizedEnvironment),
-                stderr: sanitizeSecrets(certResult.stderr, environment: sanitizedEnvironment)
-            )
+            let certStdout = sanitizeSecrets(certResult.stdout, environment: sanitizedEnvironment)
+            let certStderr = sanitizeSecrets(certResult.stderr, environment: sanitizedEnvironment)
             if certResult.exitCode != 0 {
+                records.append(certRecord)
+                logLines += logEntry(
+                    for: certRecord,
+                    stdout: certStdout,
+                    stderr: certStderr
+                )
                 let summary = "release-check failed at \(ReleaseCheckStep.certSync.rawValue) (\(ReleaseCheckFailureCode.certSync.rawValue))"
                 try writeFailureArtifacts(
                     jsonPath: jsonPath,
@@ -434,6 +436,56 @@ public struct ReleaseCheckEngine: Sendable {
                     artifacts: artifacts
                 )
             }
+            if let mismatchSummary = signingTeamMismatchSummary(
+                expectedTeamID: request.profile.configuredAppleTeamId,
+                stdout: certResult.stdout,
+                stderr: certResult.stderr
+            ) {
+                let mismatchRecord = StepRecord(
+                    step: .certSync,
+                    classification: .certSync,
+                    status: "failed",
+                    command: laneCommand,
+                    exitCode: 0,
+                    summary: mismatchSummary
+                )
+                records.append(mismatchRecord)
+                logLines += logEntry(
+                    for: mismatchRecord,
+                    stdout: certStdout,
+                    stderr: certStderr
+                )
+                try writeFailureArtifacts(
+                    jsonPath: jsonPath,
+                    logPath: logPath,
+                    records: records,
+                    logLines: logLines,
+                    artifacts: artifacts,
+                    mode: request.mode,
+                    summary: mismatchSummary,
+                    failureCode: .certSync,
+                    failedStep: .certSync
+                )
+                BosStateStore.updateSummary(
+                    projectRoot: root,
+                    kind: .releaseCheck,
+                    status: "failed",
+                    message: mismatchSummary
+                )
+                throw ReleaseCheckEngineError.failed(
+                    classification: .certSync,
+                    step: .certSync,
+                    summary: mismatchSummary,
+                    exitCode: 1,
+                    artifacts: artifacts
+                )
+            }
+            records.append(certRecord)
+            logLines += logEntry(
+                for: certRecord,
+                stdout: certStdout,
+                stderr: certStderr
+            )
         }
 
         let summary = "Release check passed (\(request.mode.rawValue))"
@@ -463,6 +515,8 @@ public struct ReleaseCheckEngine: Sendable {
 }
 
 extension ReleaseCheckEngine {
+    private static let teamIDRegex = try! NSRegularExpression(pattern: #"[A-Z0-9]{10}"#)
+
     private struct StepRecord: Codable, Equatable {
         let step: ReleaseCheckStep
         let classification: ReleaseCheckFailureCode
@@ -664,6 +718,47 @@ extension ReleaseCheckEngine {
         guard trimmed.count > limit else { return trimmed }
         let end = trimmed.index(trimmed.startIndex, offsetBy: limit)
         return "\(trimmed[..<end])..."
+    }
+
+    private func signingTeamMismatchSummary(
+        expectedTeamID: String?,
+        stdout: String,
+        stderr: String
+    ) -> String? {
+        guard let expectedTeamID = normalizedTeamID(expectedTeamID),
+              let discoveredTeamID = discoveredSigningTeamID(in: "\(stdout)\n\(stderr)"),
+              discoveredTeamID != expectedTeamID else {
+            return nil
+        }
+        return "signing team mismatch: configured appleTeamId=\(expectedTeamID), discovered team=\(discoveredTeamID)"
+    }
+
+    private func discoveredSigningTeamID(in text: String) -> String? {
+        let labels = ["Development Team ID", "User ID", "Organisation Unit"]
+        let lines = text.components(separatedBy: .newlines)
+        for label in labels {
+            for line in lines where line.contains(label) {
+                if let teamID = extractTeamID(from: line) {
+                    return teamID
+                }
+            }
+        }
+        return nil
+    }
+
+    private func extractTeamID(from line: String) -> String? {
+        let nsRange = NSRange(line.startIndex..<line.endIndex, in: line)
+        guard let match = Self.teamIDRegex.firstMatch(in: line, range: nsRange),
+              let range = Range(match.range, in: line) else {
+            return nil
+        }
+        return String(line[range])
+    }
+
+    private func normalizedTeamID(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

@@ -57,7 +57,7 @@ swift test --filter CLIJsonOutputIntegrationTests
 | [`CoreTests/AppRegistrationIntegrationTests.swift`](./CoreTests/AppRegistrationIntegrationTests.swift) | onboarding metadata resolution and profile sync |
 | [`CoreTests/NativeAppRegistrationProviderTests.swift`](./CoreTests/NativeAppRegistrationProviderTests.swift) | Bundle ID/app create path, race handling, provider error path |
 | [`CoreTests/ReleaseInitEngineIntegrationTests.swift`](./CoreTests/ReleaseInitEngineIntegrationTests.swift) | fastlane scaffold and signing preflight |
-| [`CoreTests/ReleaseCheckEngineIntegrationTests.swift`](./CoreTests/ReleaseCheckEngineIntegrationTests.swift) | release-check mode contract, redaction, state summary |
+| [`CoreTests/ReleaseCheckEngineIntegrationTests.swift`](./CoreTests/ReleaseCheckEngineIntegrationTests.swift) | release-check mode contract, signing-team validation, redaction, state summary |
 | [`CoreTests/ReleaseRunEngineIntegrationTests.swift`](./CoreTests/ReleaseRunEngineIntegrationTests.swift) | `build|beta|release|submit` stage contract |
 | [`CoreTests/CLIJsonOutputIntegrationTests.swift`](./CoreTests/CLIJsonOutputIntegrationTests.swift) | CLI parse/JSON surface stability |
 | [`CoreTests/SchemaValidationTests.swift`](./CoreTests/SchemaValidationTests.swift) | strict schema behavior |
