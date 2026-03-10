@@ -234,11 +234,11 @@ struct CLIJsonOutputIntegrationTests {
         #expect(releaseInitResult.status == 0)
     }
 
-    @Test func releaseInitFallsBackToConfigBlueprintWhenPlanBlueprintIsMissing() throws {
+    @Test func releaseInitUsesDefaultPlanBlueprintPath() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let blueprint = root.appending(path: "config/blueprint.yaml")
+        let blueprint = root.appending(path: ".bos/plan/blueprint.yaml")
         let profile = root.appending(path: ".bos/config/profile.yaml")
 
         try FileManager.default.createDirectory(at: blueprint.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -296,11 +296,11 @@ struct CLIJsonOutputIntegrationTests {
         #expect(FileManager.default.fileExists(atPath: root.appending(path: "fastlane/Fastfile").path(percentEncoded: false)))
     }
 
-    @Test func appRegisterFallsBackToConfigBlueprintWhenProfileOmitsIdentity() throws {
+    @Test func appRegisterUsesDefaultPlanBlueprintWhenProfileOmitsIdentity() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let blueprint = root.appending(path: "config/blueprint.yaml")
+        let blueprint = root.appending(path: ".bos/plan/blueprint.yaml")
         let profile = root.appending(path: ".bos/config/profile.yaml")
 
         try FileManager.default.createDirectory(at: blueprint.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -359,7 +359,7 @@ struct CLIJsonOutputIntegrationTests {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let blueprint = root.appending(path: "config/blueprint.yaml")
+        let blueprint = root.appending(path: ".bos/plan/blueprint.yaml")
         let profile = root.appending(path: ".bos/config/profile.yaml")
 
         try FileManager.default.createDirectory(at: blueprint.deletingLastPathComponent(), withIntermediateDirectories: true)

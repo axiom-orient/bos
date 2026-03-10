@@ -155,6 +155,11 @@ The most important rule is simple:
 - `.bos/plan/blueprint.yaml` is the generated setup plan
 - `apply` turns that plan into the actual project files
 
+Blueprint path rule:
+
+- the supported default path is `.bos/plan/blueprint.yaml`
+- if you keep a blueprint somewhere else, pass `--blueprint` explicitly
+
 ## Safe Defaults
 
 `bos` tries to keep the early setup simple:
@@ -191,24 +196,9 @@ After a successful signed build, you should also have:
 
 - a signed IPA file under `.bos/artifacts/release-run/`
 
-## Quality Status
-
-Current local verification evidence:
-
-- `swift test`: 100 tests in 13 suites passed
-- `swift build -c release`: passed
-- `git diff --check`: passed
-
 ## More Docs
 
 - [Product Guide](./docs/PRODUCT_GUIDE.md)
 - [Architecture](./docs/ARCHITECTURE.md)
 - [Testing Guide](./docs/TESTING_GUIDE.md)
-- [Release Operations Know-How](./docs/RELEASE_OPERATIONS_KNOWHOW.md)
 - [Tests Overview](./Tests/README.md)
-
-## Legacy Archive
-
-- [Archived Implementation Plan](./docs/archive/IMPLEMENTATION-PLAN-2026-03-09.md)
-- [Archived Tasks](./docs/archive/TASKS-2026-03-09.md)
-- [Archived BOS Guide](./docs/archive/BOS_GUIDE-legacy.md)

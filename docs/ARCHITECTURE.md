@@ -167,8 +167,7 @@ bos/
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── PRODUCT_GUIDE.md
-│   ├── TESTING_GUIDE.md
-│   └── archive/
+│   └── TESTING_GUIDE.md
 ├── Package.swift
 └── README.md
 ```

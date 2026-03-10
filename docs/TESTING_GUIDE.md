@@ -20,12 +20,6 @@ swift build -c release
 git diff --check
 ```
 
-Verified locally:
-
-- `swift test`: 100 tests in 13 suites passed
-- `swift build -c release`: passed
-- `git diff --check`: passed
-
 ## Test Map
 
 | Area | Test File | What It Locks |

@@ -334,11 +334,8 @@ func resolveProfilePathOrFail(
     return fallback
 }
 
-func defaultBlueprintCandidates(projectRoot: URL) -> [URL] {
-    [
-        projectRoot.appending(path: ".bos/plan/blueprint.yaml"),
-        projectRoot.appending(path: "config/blueprint.yaml")
-    ]
+func defaultBlueprintPath(projectRoot: URL) -> URL {
+    projectRoot.appending(path: ".bos/plan/blueprint.yaml")
 }
 
 func resolveOptionalBlueprintPath(raw: String?, projectRoot: URL) -> URL? {
@@ -346,9 +343,11 @@ func resolveOptionalBlueprintPath(raw: String?, projectRoot: URL) -> URL? {
         return resolvePath(raw, base: projectRoot)
     }
 
-    return defaultBlueprintCandidates(projectRoot: projectRoot).first {
-        FileManager.default.fileExists(atPath: $0.path(percentEncoded: false))
+    let path = defaultBlueprintPath(projectRoot: projectRoot)
+    guard FileManager.default.fileExists(atPath: path.path(percentEncoded: false)) else {
+        return nil
     }
+    return path
 }
 
 func resolveBlueprintPathOrFail(
@@ -361,9 +360,7 @@ func resolveBlueprintPathOrFail(
         return path
     }
 
-    let expected = defaultBlueprintCandidates(projectRoot: projectRoot)
-        .map { $0.path(percentEncoded: false) }
-        .joined(separator: " or ")
+    let expected = defaultBlueprintPath(projectRoot: projectRoot).path(percentEncoded: false)
     fail(
         message: "blueprint not found. pass `--blueprint` or create \(expected)",
         command: command,
