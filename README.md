@@ -1,207 +1,210 @@
 # bos
 
-`bos` is a Swift CLI for bootstrapping and operating iOS projects with one consistent flow:
+`bos` is a command-line tool that turns a project plan into an iOS project setup and release flow.
 
-`plan -> apply -> verify -> app-register -> release-init -> release-check -> release-run`
+What it does in order:
 
-It is designed to automate setup, validation, and release operations, not app feature development itself.
+1. read your plan
+2. create the project structure
+3. check that it builds
+4. prepare release files
+5. help you build and upload the app
 
-## Overview
+It is for project setup and release work. It does not write your app features for you.
 
-- Generate a project blueprint from `PLAN/` markdown or a PRD.
-- Scaffold a Tuist/TMA-based iOS project idempotently.
-- Run smoke build/test verification without requiring debug provisioning profiles.
-- Register Bundle ID and App Store Connect app records with `app-register`.
-- Prepare fastlane scaffolding with `release-init`.
-- Validate release readiness with live App Store Connect and `match` checks via `release-check`.
-- Build, upload, and submit signed IPAs with `release-run`.
-- Keep app onboarding metadata in one non-secret SSOT: `.bos/config/profile.yaml`.
+## When To Use It
 
-## Quick Start
+Use `bos` when you need to:
 
-### Prerequisites
+- turn `PLAN/` documents or a PRD into a project blueprint
+- create a new iOS project structure from that blueprint
+- update the generated project safely when the plan changes
+- run a basic build/test check
+- register the app in App Store Connect
+- prepare release files
+- build a signed IPA for TestFlight or App Store release
+
+If a blueprint or plan is given, `bos` is meant to carry the project through setup, verification, and release preparation.
+
+## What You Need Before Starting
 
 - Xcode 16+
 - Swift 6+
 - Tuist 4.x
 - fastlane 2.228+
-- `xcode-select` pointing to full Xcode for `doctor --for core` and `verify`
 
-### Build From Source
+For build and verification commands, use full Xcode:
 
 ```bash
-swift build -c release
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 ```
 
-### Happy Path
+## Quick Start
+
+If you are starting from `PLAN/`, this is the main setup flow:
 
 ```bash
 bos doctor
 bos plan --plan-dir ./PLAN
 bos apply --mode init
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bos verify
+```
+
+- `doctor`: checks whether your machine is ready
+- `plan`: reads your planning documents and creates a blueprint
+- `apply`: creates the project files
+- `verify`: checks that the generated project can build and test
+
+If these four commands pass, the basic project setup is complete.
+
+If you already have a blueprint file, you can skip `plan` and start from `apply`.
+
+## Typical Flows
+
+### 1. Create a Project From a Plan
+
+```bash
+bos doctor
+bos plan --plan-dir ./PLAN
+bos apply --mode init
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bos verify
+```
+
+This is the default path for a new app.
+
+### 2. Update an Existing Generated Project
+
+```bash
+bos plan --plan-dir ./PLAN
+bos apply --mode incremental --fix
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bos verify
+```
+
+Use this when the plan changed and you want `bos` to update only the generated parts safely.
+
+### 3. Register the App for Release
+
+```bash
 bos doctor --for app-register
 bos app-register
+```
+
+This checks release account information and creates or confirms the app registration.
+
+### 4. Prepare Release Files
+
+```bash
 bos doctor --for release-init
 bos release-init
 bos doctor --for release-check
 bos release-check
-bos doctor --for release-run
-bos release-run --stage beta
 ```
 
-## Architecture
+This creates the release files and checks whether the release environment is ready.
 
-`bos` has a simple split:
-
-- CLI surface: argument parsing, output formatting, command routing
-- Core engines: pure command behavior for planning, generation, verification, onboarding, and release
-- Resources/templates: bootstrap guides and Tuist/TMA project templates
-- Runtime state/artifacts: `.bos/state/` and `.bos/artifacts/`
-
-See [Architecture](./docs/ARCHITECTURE.md) for the full map.
-
-## Core Modules
-
-| Area | Responsibility | Main Files |
-|---|---|---|
-| CLI | command parsing, exit codes, JSON/human output | [`Sources/BosCLI/main.swift`](/Users/axient/repository/bos/Sources/BosCLI/main.swift) |
-| Planning | `PLAN/` or PRD to blueprint generation | [`Sources/BosCore/PlanEngine.swift`](/Users/axient/repository/bos/Sources/BosCore/PlanEngine.swift) |
-| Scaffolding | Tuist/TMA project generation and drift control | [`Sources/BosCore/ApplyEngine.swift`](/Users/axient/repository/bos/Sources/BosCore/ApplyEngine.swift) |
-| Verification | `tuist` + `xcodebuild` smoke gate | [`Sources/BosCore/VerifyEngine.swift`](/Users/axient/repository/bos/Sources/BosCore/VerifyEngine.swift) |
-| Onboarding | App Store Connect registration and metadata resolution | [`Sources/BosCore/AppRegistrationEngine.swift`](/Users/axient/repository/bos/Sources/BosCore/AppRegistrationEngine.swift) |
-| Release Prep | fastlane scaffold generation | [`Sources/BosCore/ReleaseInitEngine.swift`](/Users/axient/repository/bos/Sources/BosCore/ReleaseInitEngine.swift) |
-| Release Readiness | live ASC auth, `match` repo, cert fetch/sync checks | [`Sources/BosCore/ReleaseCheckEngine.swift`](/Users/axient/repository/bos/Sources/BosCore/ReleaseCheckEngine.swift) |
-| Release Execution | signed IPA build/upload/submit wrapper | [`Sources/BosCore/ReleaseRunEngine.swift`](/Users/axient/repository/bos/Sources/BosCore/ReleaseRunEngine.swift) |
-| Policy/Schema | profile, blueprint, toolchain, signing rules | [`Sources/BosCore/Schemas.swift`](/Users/axient/repository/bos/Sources/BosCore/Schemas.swift), [`Sources/BosCore/SigningEnvironmentPolicy.swift`](/Users/axient/repository/bos/Sources/BosCore/SigningEnvironmentPolicy.swift) |
-
-## Install / Run
-
-### Core Commands
+### 5. Build a Signed App
 
 ```bash
-bos doctor
-bos plan --plan-dir ./PLAN
-bos apply --mode init
-bos verify
-bos app-register
-bos release-init
-bos release-check
+bos doctor --for release-run
 bos release-run --stage build
 ```
 
-### Xcode-Sensitive Commands
+This creates a signed IPA file.
+
+If you need upload or submission after the signed build:
 
 ```bash
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bos doctor --for core
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bos verify
-```
-
-### Typical Release Commands
-
-```bash
-bos doctor --for app-register
-bos app-register
-bos doctor --for release-check
-bos release-init
-bos release-check
-bos doctor --for release-run
+bos release-run --stage beta
 bos release-run --stage release
+bos release-run --stage submit
 ```
 
-## Usage Examples
+## Main Commands
 
-### 1. Generate a Blueprint From `PLAN/`
+| Command | What it means in plain language |
+|---|---|
+| `bos doctor` | Check whether your machine and required tools are ready |
+| `bos plan` | Read your plan and create a blueprint file |
+| `bos apply` | Create or update the project files |
+| `bos verify` | Make sure the generated project builds and tests |
+| `bos app-register` | Create or confirm the app registration |
+| `bos release-init` | Create the files needed for release work |
+| `bos release-check` | Check whether release setup is actually ready |
+| `bos release-run` | Build, upload, or submit the app |
 
-```bash
-bos plan --plan-dir ./PLAN --project-root /path/to/project
-```
+## Important Files `bos` Uses
 
-### 2. Scaffold a New Project
+These are the main files and folders you will see:
 
-```bash
-bos apply --project-root /path/to/project --mode init
-```
+- `PLAN/`
+  - your planning documents
+- `.bos/plan/blueprint.yaml`
+  - the blueprint created from your plan
+- `.bos/config/profile.yaml`
+  - app information that is safe to keep in the project
+- `.bos/config/signing.env`
+  - release secrets
+- `.bos/state/bos.state.yaml`
+  - summary of the last important runs
+- `.bos/artifacts/`
+  - logs and output files from commands
 
-### 3. Reconcile Managed Drift
+The most important rule is simple:
 
-```bash
-bos apply --project-root /path/to/project --mode incremental --fix
-```
+- `PLAN/` is your input
+- `.bos/plan/blueprint.yaml` is the generated setup plan
+- `apply` turns that plan into the actual project files
 
-### 4. Register an Existing or New App Record
+## Safe Defaults
 
-```bash
-bos app-register --project-root /path/to/project --format json
-```
+`bos` tries to keep the early setup simple:
 
-### 5. Read-Only Release Readiness Check
+- `verify` does not require a debug provisioning profile
+- normal release checks are read-only by default
+- writable signing sync is used only for the first signing seed when needed
 
-```bash
-bos release-check --project-root /path/to/project --mode readonly-certs --format json
-```
+This keeps the common path simple while still supporting real release work.
 
-### 6. Signed IPA Build
+## When Release Checks Fail
 
-```bash
-bos release-run --project-root /path/to/project --stage build --format json
-```
+Start with these rules:
 
-## Operations / Quality
+- if `doctor` fails, fix your local tool or environment first
+- if `verify` fails, fix project generation or local Xcode setup first
+- if `release-check` fails, fix release account, signing, or release files first
+- if `release-run` fails, look at the logs in `.bos/artifacts/release-run/`
 
-### SSOT and Secrets
+One important rule:
 
-- Non-secret onboarding data lives in `.bos/config/profile.yaml`
-  - `identity.companyName`
-  - `identity.appName`
-  - `identity.appIdentifier`
-  - `identity.appleTeamId`
-  - `release.primaryLanguage`
-  - `release.sku`
-  - `release.matchGitURL`
-- Secrets live in `.bos/config/signing.env`
-  - `ASC_ISSUER_ID`
-  - `ASC_KEY_ID`
-  - `ASC_KEY_P8_BASE64`
-  - `MATCH_PASSWORD`
+- if `release-check` says the discovered signing team does not match `profile.identity.appleTeamId`, fix the team ID before trying another signed build
 
-### Release Policy
+## What Success Looks Like
 
-- Default release validation is read-only.
-- `release-check --mode sync-certs --allow-write` is an operational bootstrap for the first signing seed on an empty team/app setup.
-- It is not a blocker for releasing the `bos` product itself.
+After a normal successful setup flow, you should have:
 
-### Artifacts and State
+- a generated iOS project
+- a build/test verification result
+- release scaffolding when needed
+- logs and state summaries under `.bos/`
 
-- Artifacts: `<project-root>/.bos/artifacts/<command>/`
-- State summary: `<project-root>/.bos/state/bos.state.yaml`
+After a successful signed build, you should also have:
 
-### Quality Gates
+- a signed IPA file under `.bos/artifacts/release-run/`
 
-```bash
-swift test
-swift build -c release
-git diff --check
-```
+## Quality Status
 
-Current evidence on `codex/dev`:
+Current local verification evidence:
 
-- `swift test`: 98 tests in 13 suites passed
+- `swift test`: 100 tests in 13 suites passed
 - `swift build -c release`: passed
 - `git diff --check`: passed
 
-## Constraints / Future Work
+## More Docs
 
-- `verify` still depends on a usable local Xcode developer directory.
-- `release-check` and `release-run` depend on live Apple and `match` credentials.
-- Multi-app workspace orchestration is intentionally out of scope for now.
-- CI secret distribution remains an operational concern, not a built-in feature.
-
-## Documentation
-
-- [Architecture](./docs/ARCHITECTURE.md)
 - [Product Guide](./docs/PRODUCT_GUIDE.md)
+- [Architecture](./docs/ARCHITECTURE.md)
 - [Testing Guide](./docs/TESTING_GUIDE.md)
+- [Release Operations Know-How](./docs/RELEASE_OPERATIONS_KNOWHOW.md)
 - [Tests Overview](./Tests/README.md)
 
 ## Legacy Archive

@@ -199,6 +199,27 @@ extension ReleaseInitEngine {
             value.empty? ? "app.ipa" : value
           end
 
+          private_lane :release_bundle_identifier do
+            CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier).to_s.strip
+          end
+
+          private_lane :release_team_id do
+            CredentialsManager::AppfileConfig.try_fetch_value(:team_id).to_s.strip
+          end
+
+          private_lane :release_export_options do
+            bundle_id = release_bundle_identifier
+            team_id = release_team_id
+            options = {
+              method: "app-store",
+              provisioningProfiles: {
+                bundle_id => "match AppStore #{bundle_id}"
+              }
+            }
+            options[:teamID] = team_id unless team_id.empty?
+            options
+          end
+
           lane :certs_readonly do
             sync_code_signing(type: "appstore", readonly: true, api_key: asc_api_key)
           end
@@ -214,6 +235,8 @@ extension ReleaseInitEngine {
             build_app(
               workspace: ENV["BOS_WORKSPACE_PATH"],
               scheme: ENV["BOS_SCHEME"],
+              export_method: "app-store",
+              export_options: release_export_options,
               output_directory: output_directory,
               output_name: output_name
             )

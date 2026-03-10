@@ -20,9 +20,9 @@ swift build -c release
 git diff --check
 ```
 
-Verified on `codex/dev`:
+Verified locally:
 
-- `swift test`: 98 tests in 13 suites passed
+- `swift test`: 100 tests in 13 suites passed
 - `swift build -c release`: passed
 - `git diff --check`: passed
 
@@ -68,6 +68,7 @@ The product release gate is:
 - release build success
 - read-only live evidence for App Store Connect and `match`
 - idempotent live onboarding evidence for `app-register`
+- early signing-team mismatch detection during cert-based `release-check` modes
 
 ### Operational Bootstrap
 

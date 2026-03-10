@@ -103,6 +103,94 @@ struct ReleaseCheckEngineIntegrationTests {
         ])
     }
 
+    @Test func readonlyCertsFailsEarlyWhenDiscoveredSigningTeamDiffersFromProfile() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeFastlaneScaffold(root: root)
+
+        let runner = RecordingReleaseCheckRunner(
+            scriptedResults: [
+                ReleaseCheckCommandResult(exitCode: 0, stdout: "git ok"),
+                ReleaseCheckCommandResult(
+                    exitCode: 0,
+                    stdout: """
+                    | Development Team ID | sigh_com.axiomorient.daycraft_appstore_team-id | 7WR76382QB |
+                    | Certificate Name    | Apple Distribution: Axient Inc. (7WR76382QB)   |
+                    """
+                )
+            ]
+        )
+        let engine = ReleaseCheckEngine(
+            runner: runner,
+            authChecker: StubAppStoreConnectChecker(result: .success(.init(summary: "auth ok")))
+        )
+
+        do {
+            _ = try engine.releaseCheck(
+                request: ReleaseCheckRequest(
+                    projectRoot: root,
+                    profile: try makeProfile(
+                        name: "daycraft",
+                        identity: .init(appleTeamId: "8GT6LT258Y")
+                    ),
+                    environment: requiredEnvironment(),
+                    mode: .readonlyCerts
+                )
+            )
+            Issue.record("expected ReleaseCheckEngineError.failed")
+        } catch ReleaseCheckEngineError.failed(let classification, let step, let summary, _, _) {
+            #expect(classification == .certSync)
+            #expect(step == .certSync)
+            #expect(summary == "signing team mismatch: configured appleTeamId=8GT6LT258Y, discovered team=7WR76382QB")
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test func syncCertsFailsEarlyWhenCertificateUserIDDiffersFromProfile() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeFastlaneScaffold(root: root)
+
+        let runner = RecordingReleaseCheckRunner(
+            scriptedResults: [
+                ReleaseCheckCommandResult(exitCode: 0, stdout: "git ok"),
+                ReleaseCheckCommandResult(
+                    exitCode: 0,
+                    stdout: """
+                    | User ID           | 7WR76382QB                                   |
+                    | Organisation Unit | 7WR76382QB                                   |
+                    """
+                )
+            ]
+        )
+        let engine = ReleaseCheckEngine(
+            runner: runner,
+            authChecker: StubAppStoreConnectChecker(result: .success(.init(summary: "auth ok")))
+        )
+
+        do {
+            _ = try engine.releaseCheck(
+                request: ReleaseCheckRequest(
+                    projectRoot: root,
+                    profile: try makeProfile(
+                        name: "daycraft",
+                        identity: .init(appleTeamId: "8GT6LT258Y")
+                    ),
+                    environment: requiredEnvironment(),
+                    mode: .syncCerts
+                )
+            )
+            Issue.record("expected ReleaseCheckEngineError.failed")
+        } catch ReleaseCheckEngineError.failed(let classification, let step, let summary, _, _) {
+            #expect(classification == .certSync)
+            #expect(step == .certSync)
+            #expect(summary == "signing team mismatch: configured appleTeamId=8GT6LT258Y, discovered team=7WR76382QB")
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
     @Test func missingFastlaneScaffoldFailsWithFastlaneClassification() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -312,6 +400,7 @@ private extension ReleaseCheckEngineIntegrationTests {
 
     func makeProfile(
         name: String,
+        identity: Profile.Identity = .init(),
         release: Profile.ReleaseSettings = .init(primaryLanguage: "en-US")
     ) throws -> Profile {
         let appTargets = Profile.AppTargets(controlsExtension: true, uiTests: true)
@@ -325,6 +414,7 @@ private extension ReleaseCheckEngineIntegrationTests {
             schemaVersion: 1,
             name: name,
             defaults: defaults,
+            identity: identity,
             release: release,
             featurePattern: pattern,
             rules: rules
