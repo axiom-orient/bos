@@ -4,10 +4,10 @@
 
 `bos` is a Swift Package Manager CLI with one executable target and one core library:
 
-- CLI: [`Sources/BosCLI/main.swift`](/Users/axient/repository/bos/Sources/BosCLI/main.swift)
+- CLI: [`Sources/BosCLI/`](/Users/axient/repository/bos/Sources/BosCLI)
 - Core library: [`Sources/BosCore/`](/Users/axient/repository/bos/Sources/BosCore)
 
-The design is intentionally flat. Each command is routed by the CLI and handled by one focused engine in `BosCore`.
+The design is intentionally flat. `BosCLI` now keeps dispatch, shared support, and each command entry in separate files, while each command is still handled by one focused engine in `BosCore`.
 
 ## System Context
 
@@ -64,9 +64,25 @@ Responsibilities:
 - Convert engine results into human or JSON output
 - Normalize exit codes
 
-Main file:
+CLI files:
 
-- [`Sources/BosCLI/main.swift`](/Users/axient/repository/bos/Sources/BosCLI/main.swift)
+- [`main.swift`](/Users/axient/repository/bos/Sources/BosCLI/main.swift): entrypoint and command dispatch
+- [`CLIModels.swift`](/Users/axient/repository/bos/Sources/BosCLI/CLIModels.swift): exit codes, command enums, and JSON payload types
+- [`CLIParsing.swift`](/Users/axient/repository/bos/Sources/BosCLI/CLIParsing.swift): help text and option parsing
+- [`CLICommandContext.swift`](/Users/axient/repository/bos/Sources/BosCLI/CLICommandContext.swift): project-root/profile/blueprint/signing context loading
+- [`CLIPathSupport.swift`](/Users/axient/repository/bos/Sources/BosCLI/CLIPathSupport.swift): project-root, profile, blueprint, and toolchain path helpers
+- [`CLIConfigSupport.swift`](/Users/axient/repository/bos/Sources/BosCLI/CLIConfigSupport.swift): profile templates, signing env parsing, YAML encode/decode, and config file IO
+- [`CLIProcessSupport.swift`](/Users/axient/repository/bos/Sources/BosCLI/CLIProcessSupport.swift): process execution, version detection, and engine runner adapters
+- [`CLIOutputSupport.swift`](/Users/axient/repository/bos/Sources/BosCLI/CLIOutputSupport.swift): human/JSON rendering and terminal failure handling
+- [`DoctorSupport.swift`](/Users/axient/repository/bos/Sources/BosCLI/DoctorSupport.swift): doctor-specific tool detection, toolchain lock setup, and auto-install support
+- [`DoctorCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/DoctorCommand.swift): `doctor` adapter
+- [`PlanCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/PlanCommand.swift): `plan` adapter
+- [`ApplyCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/ApplyCommand.swift): `apply` adapter
+- [`VerifyCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/VerifyCommand.swift): `verify` adapter
+- [`AppRegisterCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/AppRegisterCommand.swift): `app-register` adapter
+- [`ReleaseInitCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/ReleaseInitCommand.swift): `release-init` adapter
+- [`ReleaseCheckCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/ReleaseCheckCommand.swift): `release-check` adapter
+- [`ReleaseRunCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/ReleaseRunCommand.swift): `release-run` adapter
 
 ### 2. Engine Layer
 
@@ -152,20 +168,39 @@ Current regression suite covers:
 - release-check mode semantics
 - release-run stage semantics
 
-See [Testing Guide](./TESTING_GUIDE.md) and [Tests Overview](../Tests/README.md).
+See [Testing Guide](./TESTING_GUIDE.md).
 
 ## Repository Layout
 
 ```text
 bos/
+├── AGENTS.md
 ├── Sources/
 │   ├── BosCLI/
+│   │   ├── main.swift
+│   │   ├── CLIModels.swift
+│   │   ├── CLIParsing.swift
+│   │   ├── CLICommandContext.swift
+│   │   ├── CLIPathSupport.swift
+│   │   ├── CLIConfigSupport.swift
+│   │   ├── CLIProcessSupport.swift
+│   │   ├── CLIOutputSupport.swift
+│   │   ├── DoctorSupport.swift
+│   │   ├── DoctorCommand.swift
+│   │   ├── PlanCommand.swift
+│   │   ├── ApplyCommand.swift
+│   │   ├── VerifyCommand.swift
+│   │   ├── AppRegisterCommand.swift
+│   │   ├── ReleaseInitCommand.swift
+│   │   ├── ReleaseCheckCommand.swift
+│   │   └── ReleaseRunCommand.swift
 │   └── BosCore/
 ├── Tests/
 │   ├── CoreTests/
 │   └── Fixtures/
 ├── docs/
 │   ├── ARCHITECTURE.md
+│   ├── OPERATIONS_GUIDE.md
 │   ├── PRODUCT_GUIDE.md
 │   └── TESTING_GUIDE.md
 ├── Package.swift
