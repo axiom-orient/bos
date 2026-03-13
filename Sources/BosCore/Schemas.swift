@@ -541,17 +541,20 @@ extension Profile {
     public struct ReleaseSettings: Codable, Sendable {
         public let primaryLanguage: String
         public let sku: String?
+        public let appStoreAppId: String?
         public let matchGitURL: String?
 
         public init(
             primaryLanguage: String = "en-US",
             sku: String? = nil,
+            appStoreAppId: String? = nil,
             matchGitURL: String? = nil
         ) {
             self.primaryLanguage = primaryLanguage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? "en-US"
                 : primaryLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
             self.sku = Identity.normalized(sku)
+            self.appStoreAppId = Identity.normalized(appStoreAppId)
             self.matchGitURL = Identity.normalized(matchGitURL)
         }
     }
@@ -651,6 +654,7 @@ extension Profile.ReleaseSettings: StrictSchema {
     fileprivate enum CodingKeys: String, CodingKey, CaseIterable {
         case primaryLanguage
         case sku
+        case appStoreAppId
         case matchGitURL
     }
 
@@ -663,6 +667,7 @@ extension Profile.ReleaseSettings: StrictSchema {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.primaryLanguage = try c.decodeIfPresent(String.self, forKey: .primaryLanguage) ?? "en-US"
         self.sku = Profile.Identity.normalized(try c.decodeIfPresent(String.self, forKey: .sku))
+        self.appStoreAppId = Profile.Identity.normalized(try c.decodeIfPresent(String.self, forKey: .appStoreAppId))
         self.matchGitURL = Profile.Identity.normalized(try c.decodeIfPresent(String.self, forKey: .matchGitURL))
         try validate()
     }
@@ -681,6 +686,14 @@ extension Profile.ReleaseSettings: StrictSchema {
         }
         if let sku, sku.isEmpty {
             throw SchemaValidationError.invalidValue(schema: Self.schemaName, field: "sku", reason: "must not be empty when provided")
+        }
+        if let appStoreAppId,
+           appStoreAppId.wholeMatch(of: #/[0-9]+/#) == nil {
+            throw SchemaValidationError.invalidValue(
+                schema: Self.schemaName,
+                field: "appStoreAppId",
+                reason: "must contain only digits when provided"
+            )
         }
         if let matchGitURL, !matchGitURL.hasPrefix("https://") && !matchGitURL.hasPrefix("ssh://") && !matchGitURL.hasPrefix("git@") {
             throw SchemaValidationError.invalidValue(
@@ -807,12 +820,34 @@ extension ToolchainLock {
         public let swift: ToolRequirement
         public let tuist: ToolRequirement
         public let fastlane: ToolRequirement
+        public let asc: ToolRequirement
 
-        public init(swift: ToolRequirement, tuist: ToolRequirement, fastlane: ToolRequirement) throws {
+        public init(
+            swift: ToolRequirement,
+            tuist: ToolRequirement,
+            fastlane: ToolRequirement,
+            asc: ToolRequirement? = nil
+        ) throws {
             self.swift = swift
             self.tuist = tuist
             self.fastlane = fastlane
+            if let asc {
+                self.asc = asc
+            } else {
+                self.asc = try Self.defaultASCRequirement()
+            }
             try validate()
+        }
+
+        fileprivate static func defaultASCRequirement() throws -> ToolRequirement {
+            try ToolRequirement(
+                versionRule: .init(kind: "semver-range", value: ">=0.1.0"),
+                requiredFor: [ToolchainLock.commandAppRegister, ToolchainLock.commandReleaseCheck, ToolchainLock.commandReleaseRun],
+                installHints: [
+                    "brew install asc",
+                    "curl -fsSL https://asccli.sh/install | bash"
+                ]
+            )
         }
     }
 
@@ -859,6 +894,7 @@ extension ToolchainLock.Tools: StrictSchema {
         case swift
         case tuist
         case fastlane
+        case asc
     }
 
     public init(from decoder: Decoder) throws {
@@ -871,6 +907,11 @@ extension ToolchainLock.Tools: StrictSchema {
         self.swift = try c.decode(ToolchainLock.ToolRequirement.self, forKey: .swift)
         self.tuist = try c.decode(ToolchainLock.ToolRequirement.self, forKey: .tuist)
         self.fastlane = try c.decode(ToolchainLock.ToolRequirement.self, forKey: .fastlane)
+        if let asc = try c.decodeIfPresent(ToolchainLock.ToolRequirement.self, forKey: .asc) {
+            self.asc = asc
+        } else {
+            self.asc = try Self.defaultASCRequirement()
+        }
         try validate()
     }
 
@@ -1017,6 +1058,11 @@ extension ToolchainLock {
                     versionRule: fastlaneRule,
                     requiredFor: [commandReleaseInit, commandReleaseCheck, commandReleaseRun],
                     installHints: ["brew install fastlane", "gem install fastlane -NV"]
+                ),
+                asc: try ToolRequirement(
+                    versionRule: .init(kind: "semver-range", value: ">=0.1.0"),
+                    requiredFor: [commandAppRegister, commandReleaseCheck, commandReleaseRun],
+                    installHints: ["brew install asc", "curl -fsSL https://asccli.sh/install | bash"]
                 )
             ),
             tmaPluginRef: tmaPluginRef

@@ -79,6 +79,7 @@ CLI files:
 - [`PlanCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/PlanCommand.swift): `plan` adapter
 - [`ApplyCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/ApplyCommand.swift): `apply` adapter
 - [`VerifyCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/VerifyCommand.swift): `verify` adapter
+- [`ASCCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/ASCCommand.swift): raw `bos asc ...` adapter with BOS-managed env and artifacts
 - [`AppRegisterCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/AppRegisterCommand.swift): `app-register` adapter
 - [`ReleaseInitCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/ReleaseInitCommand.swift): `release-init` adapter
 - [`ReleaseCheckCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/ReleaseCheckCommand.swift): `release-check` adapter
@@ -106,6 +107,9 @@ Shared files define the command contract and runtime policy.
 - [`Schemas.swift`](/Users/axient/repository/bos/Sources/BosCore/Schemas.swift): blueprint, profile, lock, and state schema
 - [`OnboardingConfiguration.swift`](/Users/axient/repository/bos/Sources/BosCore/OnboardingConfiguration.swift): profile-driven onboarding defaults
 - [`SigningEnvironmentPolicy.swift`](/Users/axient/repository/bos/Sources/BosCore/SigningEnvironmentPolicy.swift): ASC and signing env validation
+- [`ASCBackend.swift`](/Users/axient/repository/bos/Sources/BosCore/ASCBackend.swift): deterministic env-only `asc` execution bridge
+- [`ASCAppStoreAppResolver.swift`](/Users/axient/repository/bos/Sources/BosCore/ASCAppStoreAppResolver.swift): bundle-ID-based App Store app ID resolution and profile backfill support
+- [`ASCAppStoreReadinessChecker.swift`](/Users/axient/repository/bos/Sources/BosCore/ASCAppStoreReadinessChecker.swift): ASC-backed readiness/status checks for release flows
 - [`ProjectBuildSupport.swift`](/Users/axient/repository/bos/Sources/BosCore/ProjectBuildSupport.swift): scheme/workspace resolution and generated artifact cleanup
 - [`BosStateStore.swift`](/Users/axient/repository/bos/Sources/BosCore/BosStateStore.swift): summary writes into `.bos/state/bos.state.yaml`
 - [`CommandOutput.swift`](/Users/axient/repository/bos/Sources/BosCore/CommandOutput.swift): stable output payloads
@@ -124,13 +128,15 @@ Shared files define the command contract and runtime policy.
 - Optional onboarding overrides from CLI
 - Profile SSOT from `.bos/config/profile.yaml`
 - Signing secrets from `.bos/config/signing.env`
+- Deterministic `asc` env bridge from BOS-managed inputs only
 
 ### Transformations
 
 1. Planning text becomes blueprint data.
 2. Blueprint plus profile becomes generated project structure.
 3. Profile plus CLI overrides becomes onboarding metadata.
-4. Environment plus profile becomes release-readiness context.
+4. Profile plus `asc` lookup becomes canonical `appStoreAppId`.
+5. Environment plus profile becomes release-readiness context.
 
 ### Side Effects
 
@@ -138,6 +144,7 @@ Shared files define the command contract and runtime policy.
 - Artifact JSON/log writes
 - State summary writes
 - App Store Connect API calls
+- External `asc` CLI execution in env-only mode
 - `git ls-remote` against `match`
 - fastlane lane execution
 
@@ -153,6 +160,8 @@ Important boundary:
 
 - `readonly-certs` is the standard release-readiness path
 - `sync-certs --allow-write` is only for first signing-seed bootstrap on an empty `match` setup
+- `app-register` still uses the native create path because deterministic API-key app creation is not yet provided by `asc`
+- low-level ASC control is exposed through `bos asc ...`, not by re-implementing `asc` command families inside `bos`
 - That operational bootstrap is separate from the `bos` product release gate
 
 ## Quality Model

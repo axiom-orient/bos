@@ -48,7 +48,8 @@ func runReleaseCheck(args: [String], format: OutputFormat) {
 
     do {
         let result = try ReleaseCheckEngine(
-            runner: ProcessReleaseCheckRunner()
+            runner: ProcessReleaseCheckRunner(),
+            readinessChecker: ASCAppStoreReadinessChecker()
         ).releaseCheck(
             request: ReleaseCheckRequest(
                 projectRoot: projectRoot,

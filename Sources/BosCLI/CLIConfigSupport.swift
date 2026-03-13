@@ -26,6 +26,8 @@ func defaultProfileTemplate() -> String {
       primaryLanguage: "en-US"
       # Example: example.app.20260312
       sku:
+      # Optional stable ASC app ID. Leave empty until discovered or created.
+      appStoreAppId:
       # Example: git@github.com:your-org/certificates.git
       matchGitURL:
     featurePattern:

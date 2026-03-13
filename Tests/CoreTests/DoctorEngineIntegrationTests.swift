@@ -14,9 +14,11 @@ struct DoctorEngineIntegrationTests {
             swiftRule: .init(kind: "semver-range", value: ">=6.0 <7.0"),
             tuistRule: .init(kind: "semver-range", value: ">=4.0 <5.0"),
             fastlaneRule: .init(kind: "semver-range", value: ">=2.0 <3.0"),
+            ascRule: .init(kind: "semver-range", value: ">=0.1.0"),
             swiftRequiredFor: ToolchainLock.allCommands,
             tuistRequiredFor: [ToolchainLock.commandApply, ToolchainLock.commandVerify],
-            fastlaneRequiredFor: [ToolchainLock.commandReleaseInit]
+            fastlaneRequiredFor: [ToolchainLock.commandReleaseInit],
+            ascRequiredFor: [ToolchainLock.commandAppRegister, ToolchainLock.commandReleaseCheck, ToolchainLock.commandReleaseRun]
         )
 
         let detected = DetectedToolchain(
@@ -52,9 +54,11 @@ struct DoctorEngineIntegrationTests {
             swiftRule: .init(kind: "semver-range", value: ">=6.0 <7.0"),
             tuistRule: .init(kind: "semver-range", value: ">=4.0 <5.0"),
             fastlaneRule: .init(kind: "semver-range", value: ">=2.0 <3.0"),
+            ascRule: .init(kind: "semver-range", value: ">=0.1.0"),
             swiftRequiredFor: ToolchainLock.allCommands,
             tuistRequiredFor: [ToolchainLock.commandApply, ToolchainLock.commandVerify],
-            fastlaneRequiredFor: [ToolchainLock.commandReleaseInit]
+            fastlaneRequiredFor: [ToolchainLock.commandReleaseInit],
+            ascRequiredFor: [ToolchainLock.commandAppRegister, ToolchainLock.commandReleaseCheck, ToolchainLock.commandReleaseRun]
         )
 
         let detected = DetectedToolchain(
@@ -89,9 +93,11 @@ struct DoctorEngineIntegrationTests {
             swiftRule: .init(kind: "semver-range", value: ">=6.0 <7.0"),
             tuistRule: .init(kind: "semver-range", value: ">=4.0 <5.0"),
             fastlaneRule: .init(kind: "semver-range", value: ">=2.0 <3.0"),
+            ascRule: .init(kind: "semver-range", value: ">=0.1.0"),
             swiftRequiredFor: ToolchainLock.allCommands,
             tuistRequiredFor: [ToolchainLock.commandApply, ToolchainLock.commandVerify],
-            fastlaneRequiredFor: [ToolchainLock.commandReleaseInit]
+            fastlaneRequiredFor: [ToolchainLock.commandReleaseInit],
+            ascRequiredFor: [ToolchainLock.commandAppRegister, ToolchainLock.commandReleaseCheck, ToolchainLock.commandReleaseRun]
         )
 
         let detected = DetectedToolchain(
@@ -134,15 +140,18 @@ struct DoctorEngineIntegrationTests {
             swiftRule: .init(kind: "semver-range", value: ">=6.0 <7.0"),
             tuistRule: .init(kind: "semver-range", value: ">=4.0 <5.0"),
             fastlaneRule: .init(kind: "semver-range", value: ">=2.0 <3.0"),
+            ascRule: .init(kind: "semver-range", value: ">=0.1.0"),
             swiftRequiredFor: ToolchainLock.allCommands,
             tuistRequiredFor: [ToolchainLock.commandApply, ToolchainLock.commandVerify],
-            fastlaneRequiredFor: [ToolchainLock.commandReleaseInit, ToolchainLock.commandReleaseCheck]
+            fastlaneRequiredFor: [ToolchainLock.commandReleaseInit, ToolchainLock.commandReleaseCheck],
+            ascRequiredFor: [ToolchainLock.commandAppRegister, ToolchainLock.commandReleaseCheck, ToolchainLock.commandReleaseRun]
         )
 
         let detected = DetectedToolchain(
             swift: "6.2",
             tuist: "4.153.1",
             fastlane: "not-found",
+            asc: "0.18.0",
             tmaPluginRef: try .init(type: "git-sha", value: "abc"),
             gitVersion: "not-found"
         )
@@ -172,6 +181,10 @@ struct DoctorEngineIntegrationTests {
 
         let fastlane = try #require(result.findings.first(where: { $0.tool == "fastlane" }))
         #expect(fastlane.severity == .recommended)
+
+        let asc = try #require(result.findings.first(where: { $0.tool == "asc" }))
+        #expect(asc.severity == .required)
+        #expect(asc.status == .installed)
     }
 
     @Test func doctorReleaseCheckScopeRequiresFastlaneGitAndSigningEnvironment() throws {
@@ -182,9 +195,11 @@ struct DoctorEngineIntegrationTests {
             swiftRule: .init(kind: "semver-range", value: ">=6.0 <7.0"),
             tuistRule: .init(kind: "semver-range", value: ">=4.0 <5.0"),
             fastlaneRule: .init(kind: "semver-range", value: ">=2.0 <3.0"),
+            ascRule: .init(kind: "semver-range", value: ">=0.1.0"),
             swiftRequiredFor: ToolchainLock.allCommands,
             tuistRequiredFor: [ToolchainLock.commandApply, ToolchainLock.commandVerify],
-            fastlaneRequiredFor: [ToolchainLock.commandReleaseInit, ToolchainLock.commandReleaseCheck]
+            fastlaneRequiredFor: [ToolchainLock.commandReleaseInit, ToolchainLock.commandReleaseCheck],
+            ascRequiredFor: [ToolchainLock.commandAppRegister, ToolchainLock.commandReleaseCheck, ToolchainLock.commandReleaseRun]
         )
 
         let detected = DetectedToolchain(
@@ -218,6 +233,10 @@ struct DoctorEngineIntegrationTests {
         #expect(fastlane.severity == .required)
         #expect(fastlane.status == .missing)
 
+        let asc = try #require(result.findings.first(where: { $0.tool == "asc" }))
+        #expect(asc.severity == .required)
+        #expect(asc.status == .missing)
+
         let git = try #require(result.findings.first(where: { $0.tool == "git" }))
         #expect(git.severity == .required)
         #expect(git.status == .missing)
@@ -233,9 +252,11 @@ private extension DoctorEngineIntegrationTests {
         swiftRule: ToolchainLock.VersionRule,
         tuistRule: ToolchainLock.VersionRule,
         fastlaneRule: ToolchainLock.VersionRule,
+        ascRule: ToolchainLock.VersionRule,
         swiftRequiredFor: [String],
         tuistRequiredFor: [String],
-        fastlaneRequiredFor: [String]
+        fastlaneRequiredFor: [String],
+        ascRequiredFor: [String]
     ) throws -> ToolchainLock {
         try ToolchainLock(
             schemaVersion: 2,
@@ -254,6 +275,11 @@ private extension DoctorEngineIntegrationTests {
                     versionRule: fastlaneRule,
                     requiredFor: fastlaneRequiredFor,
                     installHints: ["brew install fastlane", "gem install fastlane -NV"]
+                ),
+                asc: try .init(
+                    versionRule: ascRule,
+                    requiredFor: ascRequiredFor,
+                    installHints: ["brew install asc", "curl -fsSL https://asccli.sh/install | bash"]
                 )
             ),
             tmaPluginRef: .init(type: "git-sha", value: "abc")

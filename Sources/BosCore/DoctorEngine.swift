@@ -4,6 +4,7 @@ public struct DetectedToolchain: Sendable {
     public let swift: String
     public let tuist: String
     public let fastlane: String
+    public let asc: String
     public let tmaPluginRef: ToolchainLock.TMAPluginRef
     public let xcodeSelectPath: String
     public let brewPath: String
@@ -13,6 +14,7 @@ public struct DetectedToolchain: Sendable {
         swift: String,
         tuist: String,
         fastlane: String,
+        asc: String = "not-found",
         tmaPluginRef: ToolchainLock.TMAPluginRef,
         xcodeSelectPath: String = "",
         brewPath: String = "",
@@ -21,6 +23,7 @@ public struct DetectedToolchain: Sendable {
         self.swift = swift
         self.tuist = tuist
         self.fastlane = fastlane
+        self.asc = asc
         self.tmaPluginRef = tmaPluginRef
         self.xcodeSelectPath = xcodeSelectPath
         self.brewPath = brewPath
@@ -237,6 +240,12 @@ extension DoctorEngine {
             tool: "fastlane",
             actual: detected.fastlane,
             requirement: lock.tools.fastlane,
+            scope: scope
+        ))
+        findings.append(evaluate(
+            tool: "asc",
+            actual: detected.asc,
+            requirement: lock.tools.asc,
             scope: scope
         ))
 

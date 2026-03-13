@@ -126,6 +126,7 @@ func printAppRegisterJSONPayload(
     exitCode: Int,
     summary: String,
     metadata: AppRegistrationResolvedMetadata?,
+    appStoreAppId: String?,
     bundleIdStatus: AppRegistrationResourceStatus?,
     appStatus: AppRegistrationResourceStatus?,
     artifacts: [String]
@@ -139,6 +140,7 @@ func printAppRegisterJSONPayload(
         appName: metadata?.appName,
         sku: metadata?.sku,
         primaryLanguage: metadata?.primaryLanguage,
+        appStoreAppId: appStoreAppId,
         bundleIdStatus: bundleIdStatus?.rawValue,
         appStatus: appStatus?.rawValue,
         artifacts: artifacts

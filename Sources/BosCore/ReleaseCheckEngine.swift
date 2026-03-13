@@ -11,6 +11,7 @@ public enum ReleaseCheckFailureCode: String, Codable, Sendable, Equatable {
     case environment = "E-ENV"
     case fastlane = "E-FASTLANE"
     case appStoreConnectAuth = "E-ASC-AUTH"
+    case appStoreReadiness = "E-ASC-READINESS"
     case matchRepo = "E-MATCH-REPO"
     case certSync = "E-CERT-SYNC"
 }
@@ -20,6 +21,7 @@ public enum ReleaseCheckStep: String, Codable, Sendable, Equatable {
     case fastlaneScaffold = "fastlane-scaffold"
     case matchRepo = "match-repo"
     case appStoreConnectAuth = "app-store-connect-auth"
+    case appStoreReadiness = "app-store-readiness"
     case certSync = "cert-sync"
 }
 
@@ -105,13 +107,16 @@ public struct AppStoreConnectPingResult: Sendable, Equatable {
 public struct ReleaseCheckEngine: Sendable {
     private let runner: any ReleaseCheckCommandRunning
     private let authChecker: any AppStoreConnectAuthChecking
+    private let readinessChecker: any AppStoreReadinessChecking
 
     public init(
         runner: any ReleaseCheckCommandRunning,
-        authChecker: any AppStoreConnectAuthChecking = LiveAppStoreConnectChecker()
+        authChecker: any AppStoreConnectAuthChecking = LiveAppStoreConnectChecker(),
+        readinessChecker: any AppStoreReadinessChecking = NoopAppStoreReadinessChecker()
     ) {
         self.runner = runner
         self.authChecker = authChecker
+        self.readinessChecker = readinessChecker
     }
 
     public func releaseCheck(request: ReleaseCheckRequest) throws -> ReleaseCheckResult {
@@ -300,8 +305,16 @@ public struct ReleaseCheckEngine: Sendable {
         records.append(matchRecord)
         logLines += logEntry(
             for: matchRecord,
-            stdout: sanitizeSecrets(matchResult.stdout, environment: sanitizedEnvironment),
-            stderr: sanitizeSecrets(matchResult.stderr, environment: sanitizedEnvironment)
+            stdout: SecretRedactionSupport.redact(
+                matchResult.stdout,
+                environment: sanitizedEnvironment,
+                keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
+            ),
+            stderr: SecretRedactionSupport.redact(
+                matchResult.stderr,
+                environment: sanitizedEnvironment,
+                keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
+            )
         )
         if matchResult.exitCode != 0 {
             let summary = "release-check failed at \(ReleaseCheckStep.matchRepo.rawValue) (\(ReleaseCheckFailureCode.matchRepo.rawValue))"
@@ -344,7 +357,12 @@ public struct ReleaseCheckEngine: Sendable {
             records.append(record)
             logLines += logEntry(for: record)
         } catch {
-            let summary = "App Store Connect authentication failed: \(sanitizeSecrets(String(describing: error), environment: sanitizedEnvironment))"
+            let errorDetails = SecretRedactionSupport.redact(
+                String(describing: error),
+                environment: sanitizedEnvironment,
+                keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
+            )
+            let summary = "App Store Connect authentication failed: \(errorDetails)"
             let record = StepRecord(
                 step: .appStoreConnectAuth,
                 classification: .appStoreConnectAuth,
@@ -401,8 +419,16 @@ public struct ReleaseCheckEngine: Sendable {
                     : "certificate sync completed",
                 sanitizedEnvironment: sanitizedEnvironment
             )
-            let certStdout = sanitizeSecrets(certResult.stdout, environment: sanitizedEnvironment)
-            let certStderr = sanitizeSecrets(certResult.stderr, environment: sanitizedEnvironment)
+            let certStdout = SecretRedactionSupport.redact(
+                certResult.stdout,
+                environment: sanitizedEnvironment,
+                keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
+            )
+            let certStderr = SecretRedactionSupport.redact(
+                certResult.stderr,
+                environment: sanitizedEnvironment,
+                keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
+            )
             if certResult.exitCode != 0 {
                 records.append(certRecord)
                 logLines += logEntry(
@@ -485,6 +511,65 @@ public struct ReleaseCheckEngine: Sendable {
                 for: certRecord,
                 stdout: certStdout,
                 stderr: certStderr
+            )
+        }
+
+        do {
+            let readiness = try readinessChecker.check(
+                projectRoot: root,
+                profile: request.profile,
+                environment: effectiveEnvironment
+            )
+            let record = StepRecord(
+                step: .appStoreReadiness,
+                classification: .appStoreReadiness,
+                status: "success",
+                command: nil,
+                exitCode: 0,
+                summary: readiness.summary
+            )
+            records.append(record)
+            logLines += logEntry(for: record)
+        } catch {
+            let errorDetails = SecretRedactionSupport.redact(
+                String(describing: error),
+                environment: sanitizedEnvironment,
+                keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
+            )
+            let summary = "App Store readiness failed: \(errorDetails)"
+            let record = StepRecord(
+                step: .appStoreReadiness,
+                classification: .appStoreReadiness,
+                status: "failed",
+                command: nil,
+                exitCode: nil,
+                summary: summary
+            )
+            records.append(record)
+            logLines += logEntry(for: record)
+            try writeFailureArtifacts(
+                jsonPath: jsonPath,
+                logPath: logPath,
+                records: records,
+                logLines: logLines,
+                artifacts: artifacts,
+                mode: request.mode,
+                summary: summary,
+                failureCode: .appStoreReadiness,
+                failedStep: .appStoreReadiness
+            )
+            BosStateStore.updateSummary(
+                projectRoot: root,
+                kind: .releaseCheck,
+                status: "failed",
+                message: summary
+            )
+            throw ReleaseCheckEngineError.failed(
+                classification: .appStoreReadiness,
+                step: .appStoreReadiness,
+                summary: summary,
+                exitCode: 1,
+                artifacts: artifacts
             )
         }
 
@@ -585,7 +670,11 @@ extension ReleaseCheckEngine {
         if result.exitCode == 0 {
             summary = successSummary
         } else {
-            let details = sanitizeSecrets(result.stderr.isEmpty ? result.stdout : result.stderr, environment: sanitizedEnvironment)
+            let details = SecretRedactionSupport.redact(
+                result.stderr.isEmpty ? result.stdout : result.stderr,
+                environment: sanitizedEnvironment,
+                keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
+            )
             summary = details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? "command failed"
                 : truncate(details)
@@ -703,14 +792,6 @@ extension ReleaseCheckEngine {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(payload)
         try RuntimeSupport.writeFile(to: path, data: data)
-    }
-
-    private func sanitizeSecrets(_ text: String, environment: [String: String]) -> String {
-        let secretKeys = ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
-        return secretKeys.reduce(text) { partial, key in
-            guard let value = environment[key], !value.isEmpty else { return partial }
-            return partial.replacingOccurrences(of: value, with: "<redacted:\(key)>")
-        }
     }
 
     private func truncate(_ text: String, limit: Int = 400) -> String {

@@ -24,6 +24,7 @@ Rules:
 
 - `profile.yaml` is safe to commit.
 - `signing.env` is secret and should not contain real values in git.
+- `appStoreAppId` is not a secret. Keep it in `profile.yaml`, not `signing.env`.
 - `blueprint.yaml` is usually generated, not handwritten.
 - the only default blueprint path is `.bos/plan/blueprint.yaml`.
 
@@ -48,6 +49,7 @@ identity:
 release:
   primaryLanguage: "en-US"
   sku: "example.app.20260312"
+  appStoreAppId: "1234567890"
   matchGitURL: "git@github.com:your-org/certificates.git"
 featurePattern:
   sourcesInterface: true
@@ -66,6 +68,7 @@ Required fields for live onboarding or release:
 - `identity.appIdentifier`
 - `identity.appleTeamId`
 - `release.sku`
+- `release.appStoreAppId` when the app already exists in App Store Connect
 - `release.matchGitURL`
 
 Commonly useful:
@@ -89,6 +92,15 @@ Value sources:
 - `MATCH_PASSWORD`: password used by `fastlane match`
 
 `MATCH_GIT_URL` does not belong here. Keep it in `profile.yaml`.
+
+When `bos` invokes `asc`, it maps this file into an env-only bridge:
+
+- `ASC_KEY_P8_BASE64` -> `ASC_PRIVATE_KEY_B64`
+- `ASC_BYPASS_KEYCHAIN=1`
+- `ASC_STRICT_AUTH=1`
+- `ASC_CONFIG_PATH=<nonexistent BOS-managed path>`
+
+That keeps operator and agent runs deterministic even when local keychain or `~/.asc/config.json` exist.
 
 Convert `.p8` to base64:
 
@@ -150,6 +162,20 @@ bos doctor --for app-register
 bos app-register --format json
 ```
 
+Notes:
+
+- `bos app-register` still uses the native create path for Bundle ID and app creation.
+- After create or existing-resource confirmation, `bos` resolves `release.appStoreAppId` through `asc` and writes it back into `profile.yaml`.
+
+### Low-Level ASC Access
+
+```bash
+bos asc apps list --bundle-id "com.example.app" --output json
+bos asc status --output json
+```
+
+Use this when an operator or agent needs the full low-level ASC surface without bypassing BOS-managed secrets, SSOT, and artifacts.
+
 ### Release Preparation
 
 ```bash
@@ -158,6 +184,11 @@ bos release-init --format json
 bos doctor --for release-check
 bos release-check --mode readonly-certs --format json
 ```
+
+`release-check` now splits responsibility:
+
+- `git ls-remote` and `fastlane` cert lanes stay local signing checks
+- App Store readiness uses the `asc` backend and writes redacted evidence under `.bos/artifacts/release-check/`
 
 ### Signed Build
 

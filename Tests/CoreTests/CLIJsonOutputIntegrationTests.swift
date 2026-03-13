@@ -705,6 +705,14 @@ struct CLIJsonOutputIntegrationTests {
                 installHints:
                   - brew install fastlane
                   - gem install fastlane -NV
+              asc:
+                versionRule:
+                  kind: semver-range
+                  value: ">=0.1.0"
+                requiredFor: [app-register, release-check, release-run]
+                installHints:
+                  - brew install asc
+                  - curl -fsSL https://asccli.sh/install | bash
             tmaPluginRef:
               type: git-sha
               value: unknown
@@ -791,6 +799,13 @@ struct CLIJsonOutputIntegrationTests {
                 requiredFor: [release-init]
                 installHints:
                   - brew install fastlane
+              asc:
+                versionRule:
+                  kind: semver-range
+                  value: ">=0.1.0"
+                requiredFor: [app-register, release-check, release-run]
+                installHints:
+                  - brew install asc
             tmaPluginRef:
               type: git-sha
               value: unknown
@@ -942,6 +957,18 @@ struct CLIJsonOutputIntegrationTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let signingPath = root.appending(path: ".bos/config/signing.env")
+        let ascBin = try writeFakeExecutable(
+            root: root,
+            name: "asc",
+            body: """
+            if [ "$1" = "--version" ]; then
+              echo "0.18.0"
+              exit 0
+            fi
+            echo "unexpected args: $*" >&2
+            exit 64
+            """
+        )
         let result = try runBootstrap(
             args: [
                 "doctor",
@@ -952,6 +979,7 @@ struct CLIJsonOutputIntegrationTests {
             cwd: root,
             environment: developerToolEnvironment().merging(
                 [
+                    "PATH": "\(ascBin.deletingLastPathComponent().path(percentEncoded: false)):\(ProcessInfo.processInfo.environment["PATH"] ?? "")",
                     "ASC_ISSUER_ID": "123E4567-E89B-12D3-A456-426614174000",
                     "ASC_KEY_ID": "AB12CD34EF",
                     "ASC_KEY_P8_BASE64": "c3VwZXItc2VjcmV0",
@@ -968,7 +996,96 @@ struct CLIJsonOutputIntegrationTests {
         let payload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(result.stdout.utf8))
         #expect(payload.scope == "app-register")
         #expect(payload.findings.contains(where: { $0.tool == "signing-env" && $0.severity == "required" }))
+        let ascFinding = try #require(payload.findings.first(where: { $0.tool == "asc" }))
+        #expect(ascFinding.severity == "required")
+        #expect(ascFinding.actualVersion == "0.18.0")
         #expect(!payload.findings.contains(where: { $0.tool == "fastlane" && $0.severity == "required" }))
+    }
+
+    @Test func ascNamespacePreservesExitCodeAndWritesRedactedArtifacts() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let profile = root.appending(path: ".bos/config/profile.yaml")
+        try FileManager.default.createDirectory(at: profile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(
+            """
+            schemaVersion: 1
+            name: default
+            defaults:
+              deploymentTarget: "18.0"
+              appTargets:
+                controlsExtension: false
+                uiTests: true
+            identity:
+              companyName: Axiom Orient
+              appName: Daycraft
+              appIdentifier: com.axiomorient.daycraft
+              appleTeamId: A1B2C3D4E5
+            release:
+              primaryLanguage: "en-US"
+              sku: axiom-orient.daycraft.04805b02
+              appStoreAppId: "1234567890"
+              matchGitURL: git@github.com:org/certs.git
+            featurePattern:
+              sourcesInterface: true
+              designFolder: false
+            rules:
+              testingStyle: swift-testing
+              forbidPatterns:
+                - "@unchecked Sendable"
+                - "Date()"
+                - "UUID()"
+            """.utf8
+        ).write(to: profile, options: .atomic)
+
+        let ascBin = try writeFakeExecutable(
+            root: root,
+            name: "asc",
+            body: """
+            if [ "$1" = "--version" ]; then
+              echo "0.18.0"
+              exit 0
+            fi
+            printf '{"args":"%s","appId":"%s","privateKey":"%s"}\n' "$*" "${ASC_APP_ID}" "${ASC_PRIVATE_KEY_B64}"
+            printf 'stderr-private=%s\n' "${ASC_PRIVATE_KEY_B64}" >&2
+            exit 17
+            """
+        )
+
+        let result = try runBootstrap(
+            args: [
+                "asc",
+                "apps", "list",
+                "--bundle-id", "com.axiomorient.daycraft",
+                "--output", "json"
+            ],
+            cwd: root,
+            environment: [
+                "PATH": "\(ascBin.deletingLastPathComponent().path(percentEncoded: false)):\(ProcessInfo.processInfo.environment["PATH"] ?? "")",
+                "ASC_ISSUER_ID": "123E4567-E89B-12D3-A456-426614174000",
+                "ASC_KEY_ID": "AB12CD34EF",
+                "ASC_KEY_P8_BASE64": "c3VwZXItc2VjcmV0",
+                "MATCH_PASSWORD": "match-secret"
+            ]
+        )
+
+        #expect(result.status == 17)
+        #expect(result.stdout.contains("\"args\":\"apps list --bundle-id com.axiomorient.daycraft --output json\""))
+        #expect(result.stdout.contains("\"appId\":\"1234567890\""))
+        #expect(result.stderr.contains("stderr-private=c3VwZXItc2VjcmV0"))
+
+        let artifactsDir = root.appending(path: ".bos/artifacts/asc")
+        let files = try FileManager.default.contentsOfDirectory(at: artifactsDir, includingPropertiesForKeys: nil)
+        #expect(files.count == 2)
+
+        let logFile = try #require(files.first(where: { $0.lastPathComponent.hasSuffix(".log") }))
+        let logContent = try String(contentsOf: logFile, encoding: .utf8)
+        #expect(
+            logContent.contains("<redacted:ASC_PRIVATE_KEY_B64>")
+                || logContent.contains("<redacted:ASC_KEY_P8_BASE64>")
+        )
+        #expect(!logContent.contains("c3VwZXItc2VjcmV0"))
     }
 
     @Test func doctorReportsClearMigrationErrorForLegacyToolchainLockSchema() throws {
@@ -1204,6 +1321,7 @@ private extension CLIJsonOutputIntegrationTests {
         struct Finding: Decodable {
             let tool: String
             let severity: String
+            let actualVersion: String
             let action: String
             let installCommands: [String]
         }
@@ -1241,6 +1359,7 @@ private extension CLIJsonOutputIntegrationTests {
         let appName: String?
         let sku: String?
         let primaryLanguage: String?
+        let appStoreAppId: String?
         let bundleIdStatus: String?
         let appStatus: String?
         let artifacts: [String]
@@ -1343,6 +1462,7 @@ private extension CLIJsonOutputIntegrationTests {
         release:
           primaryLanguage: "en-US"
           sku:
+          appStoreAppId:
           matchGitURL:
         featurePattern:
           sourcesInterface: true
@@ -1354,6 +1474,18 @@ private extension CLIJsonOutputIntegrationTests {
             - "Date()"
             - "UUID()"
         """
+    }
+
+    func writeFakeExecutable(root: URL, name: String, body: String) throws -> URL {
+        let binDir = root.appending(path: "bin")
+        let path = binDir.appending(path: name)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try Data("#!/bin/sh\n\(body)\n".utf8).write(to: path, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: Int(0o755))],
+            ofItemAtPath: path.path(percentEncoded: false)
+        )
+        return path
     }
 
     func waitForExit(_ process: Process, timeoutSeconds: TimeInterval) -> Bool {

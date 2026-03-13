@@ -24,8 +24,10 @@ func run() {
 
     let rest = Array(args.dropFirst())
     if rest.contains("-h") || rest.contains("--help") {
-        printCommandHelp(command)
-        exit(ExitCode.success.rawValue)
+        if command != .asc || rest.count == 1 {
+            printCommandHelp(command)
+            exit(ExitCode.success.rawValue)
+        }
     }
 
     switch command {
@@ -37,6 +39,8 @@ func run() {
         runApply(args: rest, format: outputFormat)
     case .verify:
         runVerify(args: rest, format: outputFormat)
+    case .asc:
+        runASC(args: rest)
     case .appRegister:
         runAppRegister(args: rest, format: outputFormat)
     case .releaseInit:

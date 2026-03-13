@@ -108,6 +108,7 @@ func detectToolchain(lock: ToolchainLock) throws -> DetectedToolchain {
     let swift = detectVersion(command: ["swift", "--version"])
     let tuist = detectVersion(command: ["tuist", "version"])
     let fastlane = detectVersion(command: ["fastlane", "--version"])
+    let asc = detectVersion(command: ["asc", "--version"])
     let git = detectVersion(command: ["git", "--version"])
     let env = ProcessInfo.processInfo.environment
     let tma = try ToolchainLock.TMAPluginRef(
@@ -118,6 +119,7 @@ func detectToolchain(lock: ToolchainLock) throws -> DetectedToolchain {
         swift: swift,
         tuist: tuist,
         fastlane: fastlane,
+        asc: asc,
         tmaPluginRef: tma,
         xcodeSelectPath: detectXcodeSelectPath(),
         brewPath: resolveBrewExecutable() ?? "",

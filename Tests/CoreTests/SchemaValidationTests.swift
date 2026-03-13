@@ -115,6 +115,7 @@ struct SchemaValidationTests {
           "release": {
             "primaryLanguage": "ko-KR",
             "sku": "axiom-orient.daycraft.04805b02",
+            "appStoreAppId": "1234567890",
             "matchGitURL": "https://github.com/axiom-orient/AppStoreConnect"
           },
           "featurePattern": {
@@ -132,6 +133,81 @@ struct SchemaValidationTests {
         #expect(model.defaults.appTargets.controlsExtension == true)
         #expect(model.identity.companyName == "Axiom Orient")
         #expect(model.release.primaryLanguage == "ko-KR")
+        #expect(model.release.appStoreAppId == "1234567890")
+    }
+
+    @Test func profileV1RejectsNonNumericAppStoreAppId() throws {
+        let json = """
+        {
+          "schemaVersion": 1,
+          "name": "daycraft",
+          "defaults": {
+            "deploymentTarget": "18.0",
+            "appTargets": {
+              "controlsExtension": true,
+              "uiTests": true
+            }
+          },
+          "release": {
+            "primaryLanguage": "ko-KR",
+            "appStoreAppId": "abc123"
+          },
+          "featurePattern": {
+            "sourcesInterface": true,
+            "designFolder": true
+          },
+          "rules": {
+            "testingStyle": "swift-testing",
+            "forbidPatterns": ["Date()"]
+          }
+        }
+        """
+
+        do {
+            _ = try decoder.decode(Profile.self, from: Data(json.utf8))
+            Issue.record("expected SchemaValidationError.invalidValue to be thrown")
+        } catch let error as SchemaValidationError {
+            if case .invalidValue(let schema, let field, _) = error {
+                #expect(schema == "Profile.release")
+                #expect(field == "appStoreAppId")
+            } else {
+                Issue.record("unexpected SchemaValidationError: \(error)")
+            }
+        }
+    }
+
+    @Test func profileReleaseSettingsRoundTripPreservesAppStoreAppId() throws {
+        let profile = try Profile(
+            schemaVersion: 1,
+            name: "daycraft",
+            defaults: .init(
+                deploymentTarget: "18.0",
+                appTargets: .init(controlsExtension: false, uiTests: true)
+            ),
+            identity: .init(
+                companyName: "Axiom Orient",
+                appName: "Daycraft",
+                appIdentifier: "com.axiomorient.daycraft",
+                appleTeamId: "A1B2C3D4E5"
+            ),
+            release: .init(
+                primaryLanguage: "ko-KR",
+                sku: "axiom-orient.daycraft.04805b02",
+                appStoreAppId: "1234567890",
+                matchGitURL: "https://github.com/axiom-orient/AppStoreConnect"
+            ),
+            featurePattern: .init(sourcesInterface: true, designFolder: false),
+            rules: try .init(
+                testingStyle: "swift-testing",
+                forbidPatterns: ["@unchecked Sendable", "Date()", "UUID()"]
+            )
+        )
+
+        let encoded = try JSONEncoder().encode(profile)
+        let decoded = try decoder.decode(Profile.self, from: encoded)
+
+        #expect(decoded.release.appStoreAppId == "1234567890")
+        #expect(decoded.release.sku == "axiom-orient.daycraft.04805b02")
     }
 
     @Test func profileV1FailsOnUnknownNestedKey() throws {
@@ -190,6 +266,11 @@ struct SchemaValidationTests {
               "versionRule": { "kind": "semver-range", "value": ">=2.0 <3.0" },
               "requiredFor": ["release-init", "release-check", "release-run"],
               "installHints": ["brew install fastlane", "gem install fastlane -NV"]
+            },
+            "asc": {
+              "versionRule": { "kind": "semver-range", "value": ">=0.1.0" },
+              "requiredFor": ["app-register", "release-check", "release-run"],
+              "installHints": ["brew install asc", "curl -fsSL https://asccli.sh/install | bash"]
             }
           },
           "tmaPluginRef": {
@@ -202,6 +283,7 @@ struct SchemaValidationTests {
         #expect(model.schemaVersion == 2)
         #expect(model.tools.tuist.requiredFor == ["apply", "verify", "release-run"])
         #expect(model.tools.fastlane.requiredFor == ["release-init", "release-check", "release-run"])
+        #expect(model.tools.asc.requiredFor == ["app-register", "release-check", "release-run"])
     }
 
     @Test func toolchainLockV2FailsOnUnknownToolKey() throws {

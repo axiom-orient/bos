@@ -71,6 +71,7 @@ public struct AppRegistrationResult: Sendable {
     public let summary: String
     public let artifacts: [String]
     public let metadata: AppRegistrationResolvedMetadata
+    public let appStoreAppId: String
     public let bundleIdStatus: AppRegistrationResourceStatus
     public let appStatus: AppRegistrationResourceStatus
     public let syncedProfile: Profile
@@ -85,6 +86,15 @@ public enum AppRegistrationEngineError: Error, Equatable {
 
 public protocol AppRegistrationProviding: Sendable {
     func register(metadata: AppRegistrationResolvedMetadata, environment: [String: String]) throws -> AppRegistrationProviderResult
+}
+
+public protocol AppStoreAppIDResolving: Sendable {
+    func resolve(
+        profile: Profile,
+        projectRoot: URL,
+        environment: [String: String],
+        bundleIdentifierOverride: String?
+    ) throws -> ASCAppStoreAppResolution
 }
 
 protocol AppStoreConnectClienting: Sendable {
@@ -223,9 +233,14 @@ public enum AppRegistrationSupport {
 
 public struct AppRegistrationEngine: Sendable {
     private let provider: any AppRegistrationProviding
+    private let appStoreAppIDResolver: any AppStoreAppIDResolving
 
-    public init(provider: any AppRegistrationProviding = NativeAppRegistrationProvider()) {
+    public init(
+        provider: any AppRegistrationProviding = NativeAppRegistrationProvider(),
+        appStoreAppIDResolver: any AppStoreAppIDResolving = ASCAppStoreAppResolver()
+    ) {
         self.provider = provider
+        self.appStoreAppIDResolver = appStoreAppIDResolver
     }
 
     public func register(request: AppRegistrationRequest) throws -> AppRegistrationResult {
@@ -253,7 +268,7 @@ public struct AppRegistrationEngine: Sendable {
 
         do {
             let providerResult = try provider.register(metadata: metadata, environment: request.environment)
-            let syncedProfile = try request.profile.updating(
+            let onboardingProfile = try request.profile.updating(
                 onboarding: OnboardingMetadata(
                     companyName: metadata.companyName,
                     appName: metadata.appName,
@@ -264,12 +279,20 @@ public struct AppRegistrationEngine: Sendable {
                     matchGitURL: metadata.matchGitURL
                 )
             )
+            let appResolution = try appStoreAppIDResolver.resolve(
+                profile: onboardingProfile,
+                projectRoot: root,
+                environment: request.environment,
+                bundleIdentifierOverride: metadata.appIdentifier
+            )
+            let syncedProfile = appResolution.updatedProfile
             let summary = "App registration completed (bundleId=\(providerResult.bundleIdStatus.rawValue), app=\(providerResult.appStatus.rawValue))"
             try writeArtifacts(
                 jsonPath: jsonPath,
                 logPath: logPath,
                 summary: summary,
                 metadata: metadata,
+                appStoreAppId: appResolution.appStoreAppId,
                 providerResult: providerResult,
                 artifacts: artifacts
             )
@@ -277,6 +300,7 @@ public struct AppRegistrationEngine: Sendable {
                 summary: summary,
                 artifacts: artifacts,
                 metadata: metadata,
+                appStoreAppId: appResolution.appStoreAppId,
                 bundleIdStatus: providerResult.bundleIdStatus,
                 appStatus: providerResult.appStatus,
                 syncedProfile: syncedProfile
@@ -317,6 +341,7 @@ private extension AppRegistrationEngine {
         let appName: String
         let sku: String
         let primaryLanguage: String
+        let appStoreAppId: String?
         let bundleIdStatus: String?
         let appStatus: String?
         let artifacts: [String]
@@ -425,6 +450,7 @@ private extension AppRegistrationEngine {
         logPath: URL,
         summary: String,
         metadata: AppRegistrationResolvedMetadata,
+        appStoreAppId: String,
         providerResult: AppRegistrationProviderResult,
         artifacts: [String]
     ) throws {
@@ -437,6 +463,7 @@ private extension AppRegistrationEngine {
             appName: metadata.appName,
             sku: metadata.sku,
             primaryLanguage: metadata.primaryLanguage,
+            appStoreAppId: appStoreAppId,
             bundleIdStatus: providerResult.bundleIdStatus.rawValue,
             appStatus: providerResult.appStatus.rawValue,
             artifacts: artifacts
@@ -452,6 +479,7 @@ private extension AppRegistrationEngine {
             "appleTeamId=\(metadata.appleTeamId)",
             "primaryLanguage=\(metadata.primaryLanguage)",
             "sku=\(metadata.sku)",
+            "appStoreAppId=\(appStoreAppId)",
             "companyName=\(metadata.companyName ?? "-")",
             "matchGitURL=\(metadata.matchGitURL ?? "-")",
             "bundleIdStatus=\(providerResult.bundleIdStatus.rawValue)",
@@ -494,6 +522,7 @@ private extension AppRegistrationEngine {
             appName: metadata?.appName ?? "",
             sku: metadata?.sku ?? "",
             primaryLanguage: metadata?.primaryLanguage ?? "",
+            appStoreAppId: nil,
             bundleIdStatus: nil,
             appStatus: nil,
             artifacts: artifacts
@@ -511,6 +540,7 @@ private extension AppRegistrationEngine {
             metadata.map { "appleTeamId=\($0.appleTeamId)" } ?? "appleTeamId=-",
             metadata.map { "primaryLanguage=\($0.primaryLanguage)" } ?? "primaryLanguage=-",
             metadata.map { "sku=\($0.sku)" } ?? "sku=-",
+            "appStoreAppId=-",
             ""
         ]
         try RuntimeSupport.writeFile(to: logPath, content: lines.joined(separator: "\n"))

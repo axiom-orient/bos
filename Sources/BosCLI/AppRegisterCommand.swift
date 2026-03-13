@@ -71,15 +71,16 @@ func runAppRegister(args: [String], format: OutputFormat) {
         case .human:
             renderHumanSuccess(summary: summary, artifacts: artifacts)
         case .json:
-            printAppRegisterJSONPayload(
-                status: "success",
-                exitCode: Int(ExitCode.success.rawValue),
-                summary: summary,
-                metadata: result.metadata,
-                bundleIdStatus: result.bundleIdStatus,
-                appStatus: result.appStatus,
-                artifacts: artifacts
-            )
+                printAppRegisterJSONPayload(
+                    status: "success",
+                    exitCode: Int(ExitCode.success.rawValue),
+                    summary: summary,
+                    metadata: result.metadata,
+                    appStoreAppId: result.appStoreAppId,
+                    bundleIdStatus: result.bundleIdStatus,
+                    appStatus: result.appStatus,
+                    artifacts: artifacts
+                )
         }
         exit(ExitCode.success.rawValue)
     } catch let error as AppRegistrationEngineError {
@@ -106,6 +107,7 @@ func runAppRegister(args: [String], format: OutputFormat) {
                     exitCode: Int(ExitCode.appRegisterFailed.rawValue),
                     summary: providerSummary,
                     metadata: nil,
+                    appStoreAppId: nil,
                     bundleIdStatus: nil,
                     appStatus: nil,
                     artifacts: artifacts
@@ -123,6 +125,7 @@ func runAppRegister(args: [String], format: OutputFormat) {
                 exitCode: Int(ExitCode.appRegisterFailed.rawValue),
                 summary: summary,
                 metadata: nil,
+                appStoreAppId: nil,
                 bundleIdStatus: nil,
                 appStatus: nil,
                 artifacts: []

@@ -24,6 +24,14 @@ tools:
     installHints:
       - brew install fastlane
       - gem install fastlane -NV
+  asc:
+    versionRule:
+      kind: semver-range
+      value: ">=0.1.0"
+    requiredFor: [app-register, release-check, release-run]
+    installHints:
+      - brew install asc
+      - curl -fsSL https://asccli.sh/install | bash
 tmaPluginRef:
   type: git-sha
   value: 7c00394f304f966f4ce621a7b72f2b3b19789509

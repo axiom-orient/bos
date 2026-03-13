@@ -332,6 +332,40 @@ struct ReleaseCheckEngineIntegrationTests {
             ["git", "ls-remote", "https://github.com/axiom-orient/AppStoreConnect", "HEAD"]
         ])
     }
+
+    @Test func appStoreReadinessFailureIsClassifiedSeparately() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeFastlaneScaffold(root: root)
+
+        let engine = ReleaseCheckEngine(
+            runner: RecordingReleaseCheckRunner(
+                scriptedResults: [ReleaseCheckCommandResult(exitCode: 0, stdout: "git ok")]
+            ),
+            authChecker: StubAppStoreConnectChecker(result: .success(.init(summary: "auth ok"))),
+            readinessChecker: StubReadinessChecker(
+                result: .failure(NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "status missing app store fields"]))
+            )
+        )
+
+        do {
+            _ = try engine.releaseCheck(
+                request: ReleaseCheckRequest(
+                    projectRoot: root,
+                    profile: try makeProfile(name: "daycraft"),
+                    environment: requiredEnvironment(),
+                    mode: .connectivity
+                )
+            )
+            Issue.record("expected ReleaseCheckEngineError.failed")
+        } catch ReleaseCheckEngineError.failed(let classification, let step, let summary, _, _) {
+            #expect(classification == .appStoreReadiness)
+            #expect(step == .appStoreReadiness)
+            #expect(summary.contains("App Store readiness failed"))
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
 }
 
 private extension ReleaseCheckEngineIntegrationTests {
@@ -361,6 +395,19 @@ private extension ReleaseCheckEngineIntegrationTests {
         let result: Result<AppStoreConnectPingResult, Error>
 
         func ping(environment: [String : String]) throws -> AppStoreConnectPingResult {
+            switch result {
+            case .success(let value):
+                return value
+            case .failure(let error):
+                throw error
+            }
+        }
+    }
+
+    struct StubReadinessChecker: AppStoreReadinessChecking {
+        let result: Result<AppStoreReadinessCheckResult, Error>
+
+        func check(projectRoot: URL, profile: Profile, environment: [String : String]) throws -> AppStoreReadinessCheckResult {
             switch result {
             case .success(let value):
                 return value

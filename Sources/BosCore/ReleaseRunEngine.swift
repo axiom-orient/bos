@@ -253,8 +253,16 @@ public struct ReleaseRunEngine: Sendable {
             records.append(record)
             logLines += logEntry(
                 for: record,
-                stdout: sanitizeSecrets(result.stdout, environment: sanitizedEnvironment),
-                stderr: sanitizeSecrets(result.stderr, environment: sanitizedEnvironment)
+                stdout: SecretRedactionSupport.redact(
+                    result.stdout,
+                    environment: sanitizedEnvironment,
+                    keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
+                ),
+                stderr: SecretRedactionSupport.redact(
+                    result.stderr,
+                    environment: sanitizedEnvironment,
+                    keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
+                )
             )
             if result.exitCode != 0 {
                 throw try fail(
@@ -325,8 +333,16 @@ public struct ReleaseRunEngine: Sendable {
         records.append(buildRecord)
         logLines += logEntry(
             for: buildRecord,
-            stdout: sanitizeSecrets(buildResult.stdout, environment: sanitizedEnvironment),
-            stderr: sanitizeSecrets(buildResult.stderr, environment: sanitizedEnvironment)
+            stdout: SecretRedactionSupport.redact(
+                buildResult.stdout,
+                environment: sanitizedEnvironment,
+                keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
+            ),
+            stderr: SecretRedactionSupport.redact(
+                buildResult.stderr,
+                environment: sanitizedEnvironment,
+                keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
+            )
         )
         if buildResult.exitCode != 0 {
             throw try fail(
@@ -383,8 +399,16 @@ public struct ReleaseRunEngine: Sendable {
             records.append(uploadRecord)
             logLines += logEntry(
                 for: uploadRecord,
-                stdout: sanitizeSecrets(uploadResult.stdout, environment: sanitizedEnvironment),
-                stderr: sanitizeSecrets(uploadResult.stderr, environment: sanitizedEnvironment)
+                stdout: SecretRedactionSupport.redact(
+                    uploadResult.stdout,
+                    environment: sanitizedEnvironment,
+                    keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
+                ),
+                stderr: SecretRedactionSupport.redact(
+                    uploadResult.stderr,
+                    environment: sanitizedEnvironment,
+                    keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
+                )
             )
             if uploadResult.exitCode != 0 {
                 throw try fail(
@@ -541,7 +565,11 @@ private extension ReleaseRunEngine {
         if result.exitCode == 0 {
             summary = successSummary
         } else {
-            let details = sanitizeSecrets(result.stderr.isEmpty ? result.stdout : result.stderr, environment: sanitizedEnvironment)
+            let details = SecretRedactionSupport.redact(
+                result.stderr.isEmpty ? result.stdout : result.stderr,
+                environment: sanitizedEnvironment,
+                keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
+            )
             summary = details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? "command failed"
                 : truncate(details)
@@ -668,14 +696,6 @@ private extension ReleaseRunEngine {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(payload)
         try RuntimeSupport.writeFile(to: path, data: data)
-    }
-
-    func sanitizeSecrets(_ text: String, environment: [String: String]) -> String {
-        let secretKeys = ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
-        return secretKeys.reduce(text) { partial, key in
-            guard let value = environment[key], !value.isEmpty else { return partial }
-            return partial.replacingOccurrences(of: value, with: "<redacted:\(key)>")
-        }
     }
 
     func truncate(_ text: String, limit: Int = 400) -> String {

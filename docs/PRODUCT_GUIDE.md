@@ -10,6 +10,7 @@ Its public surface is intentionally narrow:
 - `plan`
 - `apply`
 - `verify`
+- `asc`
 - `app-register`
 - `release-init`
 - `release-check`
@@ -53,6 +54,7 @@ How it appears:
 - `identity.appleTeamId`
 - `release.primaryLanguage`
 - `release.sku`
+- `release.appStoreAppId`
 - `release.matchGitURL`
 
 `.bos/config/signing.env`
@@ -70,6 +72,7 @@ How it appears:
 | `plan` | generate `.bos/plan/blueprint.yaml` | `PLAN/` or `--prd` | `.bos/plan/blueprint.yaml` |
 | `apply` | generate or reconcile Tuist/TMA scaffold | blueprint, profile | generated project files, `.bos/state/bos.state.yaml`, `.bos/artifacts/apply/` |
 | `verify` | run smoke validation for generated projects | generated project, full Xcode developer dir | `.bos/state/bos.state.yaml`, `.bos/artifacts/verify/` |
+| `asc` | forward raw low-level App Store Connect commands through BOS-managed context | current project root, profile SSOT, signing env, forwarded `asc` args | `.bos/artifacts/asc/` |
 | `app-register` | create or confirm Bundle ID and ASC app record | profile identity fields, ASC env, optional blueprint | `.bos/artifacts/app-register/`, synced profile output |
 | `release-init` | create fastlane scaffold | blueprint, profile, signing env | `fastlane/Fastfile`, `fastlane/Appfile`, `fastlane/Matchfile`, `.bos/artifacts/release-init/` |
 | `release-check` | validate live release readiness | profile, signing env, release scaffold for cert modes | `.bos/artifacts/release-check/`, `.bos/state/bos.state.yaml` |
@@ -79,12 +82,15 @@ How it appears:
 
 - `verify` suppresses debug signing for the smoke path.
 - `app-register` is idempotent. Existing resources return `existing`, not failure.
+- `app-register` keeps native bundle/app creation for now, then resolves and persists `release.appStoreAppId` through the `asc` backend.
+- `asc` preserves raw `asc` stdout/stderr and exit codes as much as possible, but writes BOS-managed redacted artifacts.
 - `release-init` is local scaffold generation only.
-- `release-check` is the live release-readiness gate.
+- `release-check` is the live release-readiness gate. Signing remains local/fastlane-backed; App Store readiness is ASC-backed.
 - `release-run` owns the signed `build | beta | release | submit` stages.
 - `readonly-certs` is the default readiness path.
 - `sync-certs --allow-write` is only for the first signing seed on an empty setup.
 - `MATCH_GIT_URL` belongs in `profile.yaml`, though a shell environment override may still provide the effective value.
+- `bos` runs `asc` in env-only mode with no keychain or `.asc/config.json` dependence.
 
 ## Standard Flows
 
@@ -102,6 +108,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bos verify
 ```bash
 bos doctor --for app-register
 bos app-register
+bos asc apps list --bundle-id "com.example.app" --output json
 ```
 
 ### Flow C. Release Preparation

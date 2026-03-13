@@ -47,6 +47,7 @@ Rules:
 | `bos plan` | generate `.bos/plan/blueprint.yaml` from planning input |
 | `bos apply` | create or reconcile the managed project scaffold |
 | `bos verify` | run Tuist and Xcode smoke validation |
+| `bos asc` | forward raw App Store Connect commands through BOS-managed context |
 | `bos app-register` | create or confirm App Store Connect app metadata |
 | `bos release-init` | create fastlane scaffold |
 | `bos release-check` | validate live release readiness |

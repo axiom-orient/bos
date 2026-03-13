@@ -11,6 +11,7 @@ enum ExitCode: Int32 {
     case releaseCheckFailed = 7
     case appRegisterFailed = 8
     case releaseRunFailed = 9
+    case ascFailed = 10
 }
 
 enum OutputFormat: String {
@@ -104,6 +105,7 @@ struct AppRegisterCommandOutput: Codable {
     let appName: String?
     let sku: String?
     let primaryLanguage: String?
+    let appStoreAppId: String?
     let bundleIdStatus: String?
     let appStatus: String?
     let artifacts: [String]
@@ -114,6 +116,7 @@ enum BosCommand: String, CaseIterable {
     case plan
     case apply
     case verify
+    case asc
     case appRegister = "app-register"
     case releaseInit = "release-init"
     case releaseCheck = "release-check"
@@ -129,6 +132,8 @@ enum BosCommand: String, CaseIterable {
             return "scaffold 생성 + 정책 패치 적용"
         case .verify:
             return "tuist/xcodebuild 검증 게이트 실행"
+        case .asc:
+            return "BOS context로 asc 전체 저수준 표면 실행"
         case .appRegister:
             return "App Store Connect 앱/Bundle ID 등록 + profile SSOT 동기화"
         case .releaseInit:
@@ -150,6 +155,8 @@ enum BosCommand: String, CaseIterable {
             return "bos apply [--blueprint <path>] [--app-identifier <id>] [--apple-team-id <team>] [--profile <path>] [--mode init|incremental] [--fix] [--dry-run] [--project-root <path>] [--format human|json]"
         case .verify:
             return "bos verify [--profile <path>] [--project-root <path>] [--format human|json]"
+        case .asc:
+            return "bos asc <asc-subcommand...>"
         case .appRegister:
             return "bos app-register [--blueprint <path>] [--profile <path>] [--project-root <path>] [--company-name <name>] [--app-name <name>] [--app-identifier <id>] [--apple-team-id <team>] [--primary-language en-US|ko-KR] [--sku <value>] [--match-git-url <url>] [--format human|json]"
         case .releaseInit:

@@ -7,6 +7,7 @@ public struct OnboardingMetadata: Codable, Sendable, Equatable {
     public let appleTeamId: String
     public let primaryLanguage: String
     public let sku: String
+    public let appStoreAppId: String?
     public let matchGitURL: String?
 
     public init(
@@ -16,6 +17,7 @@ public struct OnboardingMetadata: Codable, Sendable, Equatable {
         appleTeamId: String,
         primaryLanguage: String,
         sku: String,
+        appStoreAppId: String? = nil,
         matchGitURL: String?
     ) {
         self.companyName = OnboardingMetadata.normalized(companyName)
@@ -24,6 +26,7 @@ public struct OnboardingMetadata: Codable, Sendable, Equatable {
         self.appleTeamId = appleTeamId
         self.primaryLanguage = primaryLanguage
         self.sku = sku
+        self.appStoreAppId = OnboardingMetadata.normalized(appStoreAppId)
         self.matchGitURL = OnboardingMetadata.normalized(matchGitURL)
     }
 
@@ -55,6 +58,7 @@ public extension Profile {
     var configuredAppleTeamId: String? { identity.appleTeamId }
     var configuredPrimaryLanguage: String { release.primaryLanguage }
     var configuredSKU: String? { release.sku }
+    var configuredAppStoreAppId: String? { release.appStoreAppId }
     var configuredMatchGitURL: String? { release.matchGitURL }
 
     func updating(onboarding metadata: OnboardingMetadata) throws -> Profile {
@@ -71,7 +75,25 @@ public extension Profile {
             release: .init(
                 primaryLanguage: metadata.primaryLanguage,
                 sku: metadata.sku,
+                appStoreAppId: metadata.appStoreAppId ?? release.appStoreAppId,
                 matchGitURL: metadata.matchGitURL ?? release.matchGitURL
+            ),
+            featurePattern: featurePattern,
+            rules: rules
+        )
+    }
+
+    func updating(appStoreAppId: String) throws -> Profile {
+        try Profile(
+            schemaVersion: schemaVersion,
+            name: name,
+            defaults: defaults,
+            identity: identity,
+            release: .init(
+                primaryLanguage: release.primaryLanguage,
+                sku: release.sku,
+                appStoreAppId: appStoreAppId,
+                matchGitURL: release.matchGitURL
             ),
             featurePattern: featurePattern,
             rules: rules

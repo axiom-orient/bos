@@ -9,7 +9,29 @@ struct AppRegistrationIntegrationTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let provider = StubProvider(result: .init(bundleIdStatus: .created, appStatus: .existing))
-        let engine = AppRegistrationEngine(provider: provider)
+        let engine = AppRegistrationEngine(
+            provider: provider,
+            appStoreAppIDResolver: StubResolver(
+                result: .init(
+                    appStoreAppId: "1234567890",
+                    source: .lookup,
+                    updatedProfile: try makeProfile(
+                        identity: .init(
+                            companyName: "Axiom Orient",
+                            appName: "Blueprint Name",
+                            appIdentifier: "com.axiomorient.daycraft",
+                            appleTeamId: "A1B2C3D4E5"
+                        ),
+                        release: .init(
+                            primaryLanguage: "ko-KR",
+                            sku: "blueprint.sku",
+                            appStoreAppId: "1234567890",
+                            matchGitURL: "https://github.com/axiom-orient/AppStoreConnect"
+                        )
+                    )
+                )
+            )
+        )
 
         let result = try engine.register(
             request: AppRegistrationRequest(
@@ -35,8 +57,10 @@ struct AppRegistrationIntegrationTests {
         #expect(result.metadata.matchGitURL == "https://github.com/axiom-orient/AppStoreConnect")
         #expect(result.bundleIdStatus == .created)
         #expect(result.appStatus == .existing)
+        #expect(result.appStoreAppId == "1234567890")
         #expect(result.syncedProfile.identity.appName == "Blueprint Name")
         #expect(result.syncedProfile.release.sku == "blueprint.sku")
+        #expect(result.syncedProfile.release.appStoreAppId == "1234567890")
         #expect(result.syncedProfile.release.matchGitURL == "https://github.com/axiom-orient/AppStoreConnect")
 
         let logPath = try #require(result.artifacts.first(where: { $0.hasSuffix(".log") }))
@@ -49,7 +73,29 @@ struct AppRegistrationIntegrationTests {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let engine = AppRegistrationEngine(provider: StubProvider(result: .init(bundleIdStatus: .existing, appStatus: .created)))
+        let engine = AppRegistrationEngine(
+            provider: StubProvider(result: .init(bundleIdStatus: .existing, appStatus: .created)),
+            appStoreAppIDResolver: StubResolver(
+                result: .init(
+                    appStoreAppId: "2222222222",
+                    source: .lookup,
+                    updatedProfile: try makeProfile(
+                        identity: .init(
+                            companyName: "Axient",
+                            appName: "Aether",
+                            appIdentifier: "com.axient.aether",
+                            appleTeamId: "8GT6LT258Y"
+                        ),
+                        release: .init(
+                            primaryLanguage: "ko-KR",
+                            sku: "axient.aether.manual",
+                            appStoreAppId: "2222222222",
+                            matchGitURL: "git@github.com:axiom-orient/AppStoreConnect.git"
+                        )
+                    )
+                )
+            )
+        )
         let result = try engine.register(
             request: AppRegistrationRequest(
                 projectRoot: root,
@@ -83,13 +129,33 @@ struct AppRegistrationIntegrationTests {
         #expect(result.metadata.primaryLanguage == "ko-KR")
         #expect(result.metadata.sku == "axient.aether.manual")
         #expect(result.metadata.matchGitURL == "git@github.com:axiom-orient/AppStoreConnect.git")
+        #expect(result.appStoreAppId == "2222222222")
     }
 
     @Test func registerGeneratesDeterministicSKUFromBundlePrefixWhenCompanyNameMissing() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let engine = AppRegistrationEngine(provider: StubProvider(result: .init(bundleIdStatus: .existing, appStatus: .existing)))
+        let engine = AppRegistrationEngine(
+            provider: StubProvider(result: .init(bundleIdStatus: .existing, appStatus: .existing)),
+            appStoreAppIDResolver: StubResolver(
+                result: .init(
+                    appStoreAppId: "3333333333",
+                    source: .lookup,
+                    updatedProfile: try makeProfile(
+                        identity: .init(
+                            appIdentifier: "com.axiomorient.daycraft",
+                            appleTeamId: "A1B2C3D4E5"
+                        ),
+                        release: .init(
+                            primaryLanguage: "en-US",
+                            sku: "axiomorient.daycraft.04805b02",
+                            appStoreAppId: "3333333333"
+                        )
+                    )
+                )
+            )
+        )
         let result = try engine.register(
             request: AppRegistrationRequest(
                 projectRoot: root,
@@ -106,6 +172,8 @@ struct AppRegistrationIntegrationTests {
 
         #expect(result.metadata.appName == "Daycraft")
         #expect(result.metadata.sku == "axiomorient.daycraft.04805b02")
+        #expect(result.appStoreAppId == "3333333333")
+        #expect(result.syncedProfile.release.appStoreAppId == "3333333333")
         #expect(result.syncedProfile.release.sku == "axiomorient.daycraft.04805b02")
     }
 
@@ -113,7 +181,27 @@ struct AppRegistrationIntegrationTests {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let engine = AppRegistrationEngine(provider: StubProvider(result: .init(bundleIdStatus: .existing, appStatus: .existing)))
+        let engine = AppRegistrationEngine(
+            provider: StubProvider(result: .init(bundleIdStatus: .existing, appStatus: .existing)),
+            appStoreAppIDResolver: StubResolver(
+                result: .init(
+                    appStoreAppId: "4444444444",
+                    source: .lookup,
+                    updatedProfile: try makeProfile(
+                        identity: .init(
+                            companyName: "Axiom Orient",
+                            appIdentifier: "com.axiomorient.daycraft",
+                            appleTeamId: "A1B2C3D4E5"
+                        ),
+                        release: .init(
+                            primaryLanguage: "en-US",
+                            sku: "axiom-orient.daycraft.04805b02",
+                            appStoreAppId: "4444444444"
+                        )
+                    )
+                )
+            )
+        )
         let result = try engine.register(
             request: AppRegistrationRequest(
                 projectRoot: root,
@@ -131,7 +219,44 @@ struct AppRegistrationIntegrationTests {
 
         #expect(result.metadata.appName == "Daycraft")
         #expect(result.metadata.sku == "axiom-orient.daycraft.04805b02")
+        #expect(result.appStoreAppId == "4444444444")
+        #expect(result.syncedProfile.release.appStoreAppId == "4444444444")
         #expect(result.syncedProfile.release.sku == "axiom-orient.daycraft.04805b02")
+    }
+
+    @Test func registerKeepsProfileAppStoreAppIdWhenResolverUsesProfileSource() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let existingProfile = try makeProfile(
+            identity: .init(
+                companyName: "Axiom Orient",
+                appIdentifier: "com.axiomorient.daycraft",
+                appleTeamId: "A1B2C3D4E5"
+            ),
+            release: .init(primaryLanguage: "en-US", sku: "manual.sku", appStoreAppId: "5555555555")
+        )
+        let engine = AppRegistrationEngine(
+            provider: StubProvider(result: .init(bundleIdStatus: .existing, appStatus: .existing)),
+            appStoreAppIDResolver: StubResolver(
+                result: .init(
+                    appStoreAppId: "5555555555",
+                    source: .profile,
+                    updatedProfile: existingProfile
+                )
+            )
+        )
+
+        let result = try engine.register(
+            request: AppRegistrationRequest(
+                projectRoot: root,
+                profile: existingProfile,
+                environment: requiredEnvironment()
+            )
+        )
+
+        #expect(result.appStoreAppId == "5555555555")
+        #expect(result.syncedProfile.release.appStoreAppId == "5555555555")
     }
 
     @Test func registerFailsWhenAppStoreConnectEnvironmentIsMissing() throws {
@@ -167,6 +292,19 @@ private extension AppRegistrationIntegrationTests {
         let result: AppRegistrationProviderResult
 
         func register(metadata: AppRegistrationResolvedMetadata, environment: [String : String]) throws -> AppRegistrationProviderResult {
+            result
+        }
+    }
+
+    struct StubResolver: AppStoreAppIDResolving {
+        let result: ASCAppStoreAppResolution
+
+        func resolve(
+            profile: Profile,
+            projectRoot: URL,
+            environment: [String : String],
+            bundleIdentifierOverride: String?
+        ) throws -> ASCAppStoreAppResolution {
             result
         }
     }
