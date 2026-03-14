@@ -24,16 +24,19 @@ git diff --check
 
 | Area | Test File | What It Locks |
 |---|---|---|
-| planning | [`PlanEngineIntegrationTests.swift`](/Users/axient/repository/bos/Tests/CoreTests/PlanEngineIntegrationTests.swift) | markdown extraction, metadata precedence, blueprint generation |
-| scaffolding | [`ApplyEngineIntegrationTests.swift`](/Users/axient/repository/bos/Tests/CoreTests/ApplyEngineIntegrationTests.swift) | init/incremental generation, drift handling, idempotency |
-| smoke verification | [`VerifyEngineIntegrationTests.swift`](/Users/axient/repository/bos/Tests/CoreTests/VerifyEngineIntegrationTests.swift) | command order, scheme resolution, signing suppression, cleanup, failure taxonomy |
-| onboarding contract | [`AppRegistrationIntegrationTests.swift`](/Users/axient/repository/bos/Tests/CoreTests/AppRegistrationIntegrationTests.swift) | metadata resolution, deterministic SKU, profile backfill, env validation |
-| ASC provider | [`NativeAppRegistrationProviderTests.swift`](/Users/axient/repository/bos/Tests/CoreTests/NativeAppRegistrationProviderTests.swift) | create path, race-to-existing path, provider failure propagation |
-| release init | [`ReleaseInitEngineIntegrationTests.swift`](/Users/axient/repository/bos/Tests/CoreTests/ReleaseInitEngineIntegrationTests.swift) | fastlane scaffold generation and signing preflight |
-| release readiness | [`ReleaseCheckEngineIntegrationTests.swift`](/Users/axient/repository/bos/Tests/CoreTests/ReleaseCheckEngineIntegrationTests.swift) | mode semantics, external step ordering, redaction, state sync |
-| release execution | [`ReleaseRunEngineIntegrationTests.swift`](/Users/axient/repository/bos/Tests/CoreTests/ReleaseRunEngineIntegrationTests.swift) | `build|beta|release|submit` semantics, signing mode choice, IPA path, failure mapping |
-| CLI contract | [`CLIJsonOutputIntegrationTests.swift`](/Users/axient/repository/bos/Tests/CoreTests/CLIJsonOutputIntegrationTests.swift) | parse failures, JSON payload stability, profile/signing template behavior, doctor scope behavior |
-| schemas/state | [`SchemaValidationTests.swift`](/Users/axient/repository/bos/Tests/CoreTests/SchemaValidationTests.swift) | strict schema decode and additive state fields |
+| planning | [`PlanEngineIntegrationTests.swift`](../Tests/CoreTests/PlanEngineIntegrationTests.swift) | markdown extraction, metadata precedence, blueprint generation |
+| scaffolding | [`ApplyEngineIntegrationTests.swift`](../Tests/CoreTests/ApplyEngineIntegrationTests.swift) | init/incremental generation, drift handling, idempotency |
+| smoke verification | [`VerifyEngineIntegrationTests.swift`](../Tests/CoreTests/VerifyEngineIntegrationTests.swift) | command order, scheme resolution, signing suppression, cleanup, failure taxonomy |
+| onboarding contract | [`AppRegistrationIntegrationTests.swift`](../Tests/CoreTests/AppRegistrationIntegrationTests.swift) | metadata resolution, deterministic SKU, profile backfill, env validation |
+| ASC provider | [`NativeAppRegistrationProviderTests.swift`](../Tests/CoreTests/NativeAppRegistrationProviderTests.swift) | create path, race-to-existing path, provider failure propagation |
+| release init | [`ReleaseInitEngineIntegrationTests.swift`](../Tests/CoreTests/ReleaseInitEngineIntegrationTests.swift) | fastlane scaffold generation and signing preflight |
+| release readiness | [`ReleaseCheckEngineIntegrationTests.swift`](../Tests/CoreTests/ReleaseCheckEngineIntegrationTests.swift) | mode semantics, external step ordering, redaction, state sync |
+| release execution | [`ReleaseRunEngineIntegrationTests.swift`](../Tests/CoreTests/ReleaseRunEngineIntegrationTests.swift) | `build|beta|release|submit` semantics, signing mode choice, IPA path, failure mapping |
+| screenshots workflow | [`ScreenshotsEngineIntegrationTests.swift`](../Tests/CoreTests/ScreenshotsEngineIntegrationTests.swift) | screenshot plan summary, raw capture materialization, export composition, and coverage validation |
+| device workflow | [`DeviceEngineIntegrationTests.swift`](../Tests/CoreTests/DeviceEngineIntegrationTests.swift) | normalized inventory, register/install/launch/logs flow, and device doctor output |
+| CLI contract | [`CLIJsonOutputIntegrationTests.swift`](../Tests/CoreTests/CLIJsonOutputIntegrationTests.swift) | parse failures, JSON payload stability, profile/signing template behavior, doctor scope behavior |
+| schemas/state | [`SchemaValidationTests.swift`](../Tests/CoreTests/SchemaValidationTests.swift) | strict schema decode, metadata/screenshot contract validation, and additive state fields |
+| integrity guards | [`RepositoryIntegrityTests.swift`](../Tests/CoreTests/RepositoryIntegrityTests.swift) | markdown link health, packaged resource drift, repo-portable docs contracts |
 
 ## Practical Rules
 
@@ -57,8 +60,11 @@ swift build -c release
 
 ```bash
 swift test --filter CLIJsonOutputIntegrationTests
+swift test --filter DeviceEngineIntegrationTests
+swift test --filter ScreenshotsEngineIntegrationTests
 swift test --filter ReleaseCheckEngineIntegrationTests
 swift test --filter ReleaseRunEngineIntegrationTests
+swift test --filter RepositoryIntegrityTests
 swift test --filter NativeAppRegistrationProviderTests
 ```
 
@@ -71,7 +77,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bos verify
 
 ## Related Docs
 
-- [README](/Users/axient/repository/bos/README.md)
-- [Product Guide](/Users/axient/repository/bos/docs/PRODUCT_GUIDE.md)
-- [Operations Guide](/Users/axient/repository/bos/docs/OPERATIONS_GUIDE.md)
-- [Architecture](/Users/axient/repository/bos/docs/ARCHITECTURE.md)
+- [README](../README.md)
+- [Product Guide](../docs/PRODUCT_GUIDE.md)
+- [Operations Guide](../docs/OPERATIONS_GUIDE.md)
+- [Architecture](../docs/ARCHITECTURE.md)

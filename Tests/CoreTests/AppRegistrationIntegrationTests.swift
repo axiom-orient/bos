@@ -63,7 +63,10 @@ struct AppRegistrationIntegrationTests {
         #expect(result.syncedProfile.release.appStoreAppId == "1234567890")
         #expect(result.syncedProfile.release.matchGitURL == "https://github.com/axiom-orient/AppStoreConnect")
 
-        let logPath = try #require(result.artifacts.first(where: { $0.hasSuffix(".log") }))
+        #expect(result.artifacts.count == 4)
+        #expect(result.artifacts.contains(where: { $0.hasSuffix("/run.json") }))
+        #expect(result.artifacts.contains(where: { $0.hasSuffix("/manifest.json") }))
+        let logPath = try #require(result.artifacts.first(where: { $0.hasSuffix("/stdout.log") }))
         let log = try String(contentsOfFile: logPath, encoding: .utf8)
         #expect(log.contains("bundleIdStatus=created"))
         #expect(log.contains("appStatus=existing"))

@@ -1,0 +1,14 @@
+schemaVersion: 1
+platform: ios
+locales:
+  - en-US
+requiredDisplays:
+  - iphone-6_9
+  - iphone-6_5
+slides:
+  - id: hero
+    message: Capture the core user benefit in one sentence.
+  - id: workflow
+    message: Show the fastest repeated action.
+  - id: trust
+    message: Show proof, clarity, or safety.

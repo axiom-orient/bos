@@ -11,13 +11,14 @@ struct CLIBlueprintContext {
     let blueprint: Blueprint
 }
 
+struct CLIScreenshotPlanContext {
+    let path: URL
+    let plan: ScreenshotPlan
+}
+
 struct CLISigningContext {
     let environment: [String: String]
     let note: String?
-}
-
-func resolveProjectRoot(from parsed: ParsedOptions) -> URL {
-    resolvePath(parsed.values["--project-root"] ?? ".", base: currentWorkingDirectoryURL())
 }
 
 func loadProfileContext(
@@ -71,6 +72,26 @@ func loadOptionalBlueprint(
             return nil
         }
         return try decodeYAMLOrJSON(Blueprint.self, at: path)
+    } catch {
+        fail(message: "\(error)", command: command, format: format)
+    }
+}
+
+func loadScreenshotPlanContext(
+    raw: String?,
+    projectRoot: URL,
+    command: BosCommand,
+    format: OutputFormat
+) -> CLIScreenshotPlanContext {
+    let path = resolveScreenshotsPlanPathOrFail(
+        raw: raw,
+        projectRoot: projectRoot,
+        command: command,
+        format: format
+    )
+    do {
+        let plan = try decodeYAMLOrJSON(ScreenshotPlan.self, at: path)
+        return CLIScreenshotPlanContext(path: path, plan: plan)
     } catch {
         fail(message: "\(error)", command: command, format: format)
     }

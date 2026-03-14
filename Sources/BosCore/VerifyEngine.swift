@@ -74,12 +74,9 @@ public struct VerifyEngine: Sendable {
         let testDestination = simulatorDestinationResolver()
         let steps = makeSteps(policy: policy, testDestination: testDestination)
 
-        let artifactsDir = try RuntimeArtifacts.makeDirectory(for: "verify", projectRoot: root)
-
         let stamp = RuntimeSupport.timestamp()
-        let logPath = artifactsDir.appending(path: "verify-\(stamp).log")
-        let jsonPath = artifactsDir.appending(path: "verify-\(stamp).json")
-        let artifactList = [jsonPath.path(percentEncoded: false), logPath.path(percentEncoded: false)]
+        let bundle = try AdapterArtifacts.makeBundle(command: "verify", projectRoot: root, stamp: stamp)
+        let artifactList = bundle.artifacts
 
         var logLines: [String] = [
             "# bos verify",
@@ -104,15 +101,15 @@ public struct VerifyEngine: Sendable {
 
             if result.exitCode != 0 {
                 let summary = "Verify failed at \(step.kind.rawValue) (\(step.classification.rawValue))"
-                try RuntimeSupport.writeFile(to: logPath, content: logLines.joined(separator: "\n") + "\n")
                 try writeArtifact(
-                    to: jsonPath,
+                    bundle: bundle,
                     status: "failed",
                     exitCode: 4,
                     summary: summary,
                     failureCode: step.classification.rawValue,
                     failedStep: step.kind.rawValue,
-                    artifacts: artifactList
+                    artifacts: artifactList,
+                    stdout: logLines.joined(separator: "\n") + "\n"
                 )
                 BosStateStore.updateSummary(
                     projectRoot: root,
@@ -130,15 +127,15 @@ public struct VerifyEngine: Sendable {
         }
 
         let summary = "Verify pipeline passed (tuist install/generate + xcodebuild build/test)"
-        try RuntimeSupport.writeFile(to: logPath, content: logLines.joined(separator: "\n") + "\n")
         try writeArtifact(
-            to: jsonPath,
+            bundle: bundle,
             status: "success",
             exitCode: 0,
             summary: summary,
             failureCode: nil,
             failedStep: nil,
-            artifacts: artifactList
+            artifacts: artifactList,
+            stdout: logLines.joined(separator: "\n") + "\n"
         )
         BosStateStore.updateSummary(
             projectRoot: root,
@@ -272,26 +269,34 @@ extension VerifyEngine {
     }
 
     private func writeArtifact(
-        to path: URL,
+        bundle: AdapterArtifactBundle,
         status: String,
         exitCode: Int,
         summary: String,
         failureCode: String?,
         failedStep: String?,
-        artifacts: [String]
+        artifacts: [String],
+        stdout: String
     ) throws {
-        let payload = ArtifactPayload(
-            command: "verify",
-            status: status,
-            exitCode: exitCode,
-            summary: summary,
-            failureCode: failureCode,
-            failedStep: failedStep,
-            artifacts: artifacts
+        _ = try AdapterArtifacts.write(
+            bundle: bundle,
+            envelope: AdapterRunEnvelope(
+                command: "verify",
+                status: status,
+                exitCode: exitCode,
+                summary: summary,
+                payload: ArtifactPayload(
+                    command: "verify",
+                    status: status,
+                    exitCode: exitCode,
+                    summary: summary,
+                    failureCode: failureCode,
+                    failedStep: failedStep,
+                    artifacts: artifacts
+                )
+            ),
+            stdout: stdout,
+            stderr: ""
         )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(payload)
-        try RuntimeSupport.writeFile(to: path, data: data)
     }
 }

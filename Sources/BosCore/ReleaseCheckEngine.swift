@@ -125,11 +125,9 @@ public struct ReleaseCheckEngine: Sendable {
             profile: request.profile,
             environment: request.environment
         )
-        let artifactsDir = try RuntimeArtifacts.makeDirectory(for: "release-check", projectRoot: root)
         let stamp = RuntimeSupport.timestamp()
-        let jsonPath = artifactsDir.appending(path: "release-check-\(stamp).json")
-        let logPath = artifactsDir.appending(path: "release-check-\(stamp).log")
-        let artifacts = [jsonPath.path(percentEncoded: false), logPath.path(percentEncoded: false)]
+        let bundle = try AdapterArtifacts.makeBundle(command: "release-check", projectRoot: root, stamp: stamp)
+        let artifacts = bundle.artifacts
 
         var records: [StepRecord] = []
         var logLines: [String] = [
@@ -139,6 +137,17 @@ public struct ReleaseCheckEngine: Sendable {
             "mode=\(request.mode.rawValue)",
             ""
         ]
+        syncState(
+            projectRoot: root,
+            mode: request.mode,
+            status: "running",
+            summary: "release-check started (\(request.mode.rawValue))",
+            records: records,
+            nextStep: .environmentValidation,
+            failedStep: nil,
+            failureCode: nil,
+            artifactDirectory: bundle.directory.path(percentEncoded: false)
+        )
 
         let sanitizedEnvironment = effectiveEnvironment
         let commandEnvironment = makeCommandEnvironment(from: effectiveEnvironment)
@@ -157,8 +166,7 @@ public struct ReleaseCheckEngine: Sendable {
             records.append(record)
             logLines += logEntry(for: record)
             try writeFailureArtifacts(
-                jsonPath: jsonPath,
-                logPath: logPath,
+                bundle: bundle,
                 records: records,
                 logLines: logLines,
                 artifacts: artifacts,
@@ -167,11 +175,16 @@ public struct ReleaseCheckEngine: Sendable {
                 failureCode: .environment,
                 failedStep: .environmentValidation
             )
-            BosStateStore.updateSummary(
+            syncState(
                 projectRoot: root,
-                kind: .releaseCheck,
+                mode: request.mode,
                 status: "failed",
-                message: summary
+                summary: summary,
+                records: records,
+                nextStep: .environmentValidation,
+                failedStep: .environmentValidation,
+                failureCode: .environment,
+                artifactDirectory: bundle.directory.path(percentEncoded: false)
             )
             throw ReleaseCheckEngineError.failed(
                 classification: .environment,
@@ -195,8 +208,7 @@ public struct ReleaseCheckEngine: Sendable {
             records.append(record)
             logLines += logEntry(for: record)
             try writeFailureArtifacts(
-                jsonPath: jsonPath,
-                logPath: logPath,
+                bundle: bundle,
                 records: records,
                 logLines: logLines,
                 artifacts: artifacts,
@@ -205,11 +217,16 @@ public struct ReleaseCheckEngine: Sendable {
                 failureCode: .environment,
                 failedStep: .environmentValidation
             )
-            BosStateStore.updateSummary(
+            syncState(
                 projectRoot: root,
-                kind: .releaseCheck,
+                mode: request.mode,
                 status: "failed",
-                message: summary
+                summary: summary,
+                records: records,
+                nextStep: .environmentValidation,
+                failedStep: .environmentValidation,
+                failureCode: .environment,
+                artifactDirectory: bundle.directory.path(percentEncoded: false)
             )
             throw ReleaseCheckEngineError.failed(
                 classification: .environment,
@@ -231,6 +248,17 @@ public struct ReleaseCheckEngine: Sendable {
             )
         )
         logLines += logEntry(for: records[records.count - 1])
+        syncState(
+            projectRoot: root,
+            mode: request.mode,
+            status: "running",
+            summary: "signing environment validated",
+            records: records,
+            nextStep: .fastlaneScaffold,
+            failedStep: nil,
+            failureCode: nil,
+            artifactDirectory: bundle.directory.path(percentEncoded: false)
+        )
 
         let scaffoldPaths = requiredFastlaneScaffoldPaths(projectRoot: root)
         let missingScaffold = scaffoldPaths.filter {
@@ -249,8 +277,7 @@ public struct ReleaseCheckEngine: Sendable {
             records.append(record)
             logLines += logEntry(for: record)
             try writeFailureArtifacts(
-                jsonPath: jsonPath,
-                logPath: logPath,
+                bundle: bundle,
                 records: records,
                 logLines: logLines,
                 artifacts: artifacts,
@@ -259,11 +286,16 @@ public struct ReleaseCheckEngine: Sendable {
                 failureCode: .fastlane,
                 failedStep: .fastlaneScaffold
             )
-            BosStateStore.updateSummary(
+            syncState(
                 projectRoot: root,
-                kind: .releaseCheck,
+                mode: request.mode,
                 status: "failed",
-                message: summary
+                summary: summary,
+                records: records,
+                nextStep: .fastlaneScaffold,
+                failedStep: .fastlaneScaffold,
+                failureCode: .fastlane,
+                artifactDirectory: bundle.directory.path(percentEncoded: false)
             )
             throw ReleaseCheckEngineError.failed(
                 classification: .fastlane,
@@ -285,6 +317,17 @@ public struct ReleaseCheckEngine: Sendable {
             )
         )
         logLines += logEntry(for: records[records.count - 1])
+        syncState(
+            projectRoot: root,
+            mode: request.mode,
+            status: "running",
+            summary: "required fastlane scaffold present",
+            records: records,
+            nextStep: .matchRepo,
+            failedStep: nil,
+            failureCode: nil,
+            artifactDirectory: bundle.directory.path(percentEncoded: false)
+        )
 
         let matchURL = effectiveEnvironment["MATCH_GIT_URL"] ?? ""
         let matchResult = try runCommand(
@@ -319,8 +362,7 @@ public struct ReleaseCheckEngine: Sendable {
         if matchResult.exitCode != 0 {
             let summary = "release-check failed at \(ReleaseCheckStep.matchRepo.rawValue) (\(ReleaseCheckFailureCode.matchRepo.rawValue))"
             try writeFailureArtifacts(
-                jsonPath: jsonPath,
-                logPath: logPath,
+                bundle: bundle,
                 records: records,
                 logLines: logLines,
                 artifacts: artifacts,
@@ -329,11 +371,16 @@ public struct ReleaseCheckEngine: Sendable {
                 failureCode: .matchRepo,
                 failedStep: .matchRepo
             )
-            BosStateStore.updateSummary(
+            syncState(
                 projectRoot: root,
-                kind: .releaseCheck,
+                mode: request.mode,
                 status: "failed",
-                message: summary
+                summary: summary,
+                records: records,
+                nextStep: .matchRepo,
+                failedStep: .matchRepo,
+                failureCode: .matchRepo,
+                artifactDirectory: bundle.directory.path(percentEncoded: false)
             )
             throw ReleaseCheckEngineError.failed(
                 classification: .matchRepo,
@@ -356,6 +403,17 @@ public struct ReleaseCheckEngine: Sendable {
             )
             records.append(record)
             logLines += logEntry(for: record)
+            syncState(
+                projectRoot: root,
+                mode: request.mode,
+                status: "running",
+                summary: authResult.summary,
+                records: records,
+                nextStep: request.mode == .connectivity ? .appStoreReadiness : .certSync,
+                failedStep: nil,
+                failureCode: nil,
+                artifactDirectory: bundle.directory.path(percentEncoded: false)
+            )
         } catch {
             let errorDetails = SecretRedactionSupport.redact(
                 String(describing: error),
@@ -374,8 +432,7 @@ public struct ReleaseCheckEngine: Sendable {
             records.append(record)
             logLines += logEntry(for: record)
             try writeFailureArtifacts(
-                jsonPath: jsonPath,
-                logPath: logPath,
+                bundle: bundle,
                 records: records,
                 logLines: logLines,
                 artifacts: artifacts,
@@ -384,11 +441,16 @@ public struct ReleaseCheckEngine: Sendable {
                 failureCode: .appStoreConnectAuth,
                 failedStep: .appStoreConnectAuth
             )
-            BosStateStore.updateSummary(
+            syncState(
                 projectRoot: root,
-                kind: .releaseCheck,
+                mode: request.mode,
                 status: "failed",
-                message: summary
+                summary: summary,
+                records: records,
+                nextStep: .appStoreConnectAuth,
+                failedStep: .appStoreConnectAuth,
+                failureCode: .appStoreConnectAuth,
+                artifactDirectory: bundle.directory.path(percentEncoded: false)
             )
             throw ReleaseCheckEngineError.failed(
                 classification: .appStoreConnectAuth,
@@ -438,8 +500,7 @@ public struct ReleaseCheckEngine: Sendable {
                 )
                 let summary = "release-check failed at \(ReleaseCheckStep.certSync.rawValue) (\(ReleaseCheckFailureCode.certSync.rawValue))"
                 try writeFailureArtifacts(
-                    jsonPath: jsonPath,
-                    logPath: logPath,
+                    bundle: bundle,
                     records: records,
                     logLines: logLines,
                     artifacts: artifacts,
@@ -448,11 +509,16 @@ public struct ReleaseCheckEngine: Sendable {
                     failureCode: .certSync,
                     failedStep: .certSync
                 )
-                BosStateStore.updateSummary(
+                syncState(
                     projectRoot: root,
-                    kind: .releaseCheck,
+                    mode: request.mode,
                     status: "failed",
-                    message: summary
+                    summary: summary,
+                    records: records,
+                    nextStep: .certSync,
+                    failedStep: .certSync,
+                    failureCode: .certSync,
+                    artifactDirectory: bundle.directory.path(percentEncoded: false)
                 )
                 throw ReleaseCheckEngineError.failed(
                     classification: .certSync,
@@ -482,8 +548,7 @@ public struct ReleaseCheckEngine: Sendable {
                     stderr: certStderr
                 )
                 try writeFailureArtifacts(
-                    jsonPath: jsonPath,
-                    logPath: logPath,
+                    bundle: bundle,
                     records: records,
                     logLines: logLines,
                     artifacts: artifacts,
@@ -492,11 +557,16 @@ public struct ReleaseCheckEngine: Sendable {
                     failureCode: .certSync,
                     failedStep: .certSync
                 )
-                BosStateStore.updateSummary(
+                syncState(
                     projectRoot: root,
-                    kind: .releaseCheck,
+                    mode: request.mode,
                     status: "failed",
-                    message: mismatchSummary
+                    summary: mismatchSummary,
+                    records: records,
+                    nextStep: .certSync,
+                    failedStep: .certSync,
+                    failureCode: .certSync,
+                    artifactDirectory: bundle.directory.path(percentEncoded: false)
                 )
                 throw ReleaseCheckEngineError.failed(
                     classification: .certSync,
@@ -511,6 +581,17 @@ public struct ReleaseCheckEngine: Sendable {
                 for: certRecord,
                 stdout: certStdout,
                 stderr: certStderr
+            )
+            syncState(
+                projectRoot: root,
+                mode: request.mode,
+                status: "running",
+                summary: certRecord.summary,
+                records: records,
+                nextStep: .appStoreReadiness,
+                failedStep: nil,
+                failureCode: nil,
+                artifactDirectory: bundle.directory.path(percentEncoded: false)
             )
         }
 
@@ -530,6 +611,17 @@ public struct ReleaseCheckEngine: Sendable {
             )
             records.append(record)
             logLines += logEntry(for: record)
+            syncState(
+                projectRoot: root,
+                mode: request.mode,
+                status: "running",
+                summary: readiness.summary,
+                records: records,
+                nextStep: nil,
+                failedStep: nil,
+                failureCode: nil,
+                artifactDirectory: bundle.directory.path(percentEncoded: false)
+            )
         } catch {
             let errorDetails = SecretRedactionSupport.redact(
                 String(describing: error),
@@ -548,8 +640,7 @@ public struct ReleaseCheckEngine: Sendable {
             records.append(record)
             logLines += logEntry(for: record)
             try writeFailureArtifacts(
-                jsonPath: jsonPath,
-                logPath: logPath,
+                bundle: bundle,
                 records: records,
                 logLines: logLines,
                 artifacts: artifacts,
@@ -558,11 +649,16 @@ public struct ReleaseCheckEngine: Sendable {
                 failureCode: .appStoreReadiness,
                 failedStep: .appStoreReadiness
             )
-            BosStateStore.updateSummary(
+            syncState(
                 projectRoot: root,
-                kind: .releaseCheck,
+                mode: request.mode,
                 status: "failed",
-                message: summary
+                summary: summary,
+                records: records,
+                nextStep: .appStoreReadiness,
+                failedStep: .appStoreReadiness,
+                failureCode: .appStoreReadiness,
+                artifactDirectory: bundle.directory.path(percentEncoded: false)
             )
             throw ReleaseCheckEngineError.failed(
                 classification: .appStoreReadiness,
@@ -575,19 +671,23 @@ public struct ReleaseCheckEngine: Sendable {
 
         let summary = "Release check passed (\(request.mode.rawValue))"
         try writeSuccessArtifacts(
-            jsonPath: jsonPath,
-            logPath: logPath,
+            bundle: bundle,
             records: records,
             logLines: logLines,
             artifacts: artifacts,
             mode: request.mode,
             summary: summary
         )
-        BosStateStore.updateSummary(
+        syncState(
             projectRoot: root,
-            kind: .releaseCheck,
+            mode: request.mode,
             status: "success",
-            message: summary
+            summary: summary,
+            records: records,
+            nextStep: nil,
+            failedStep: nil,
+            failureCode: nil,
+            artifactDirectory: bundle.directory.path(percentEncoded: false)
         )
         return ReleaseCheckResult(
             artifacts: artifacts,
@@ -719,8 +819,7 @@ extension ReleaseCheckEngine {
     }
 
     private func writeFailureArtifacts(
-        jsonPath: URL,
-        logPath: URL,
+        bundle: AdapterArtifactBundle,
         records: [StepRecord],
         logLines: [String],
         artifacts: [String],
@@ -729,9 +828,8 @@ extension ReleaseCheckEngine {
         failureCode: ReleaseCheckFailureCode,
         failedStep: ReleaseCheckStep
     ) throws {
-        try RuntimeSupport.writeFile(to: logPath, content: logLines.joined(separator: "\n") + "\n")
         try writeArtifact(
-            to: jsonPath,
+            bundle: bundle,
             status: "failed",
             exitCode: 7,
             summary: summary,
@@ -744,17 +842,15 @@ extension ReleaseCheckEngine {
     }
 
     private func writeSuccessArtifacts(
-        jsonPath: URL,
-        logPath: URL,
+        bundle: AdapterArtifactBundle,
         records: [StepRecord],
         logLines: [String],
         artifacts: [String],
         mode: ReleaseCheckMode,
         summary: String
     ) throws {
-        try RuntimeSupport.writeFile(to: logPath, content: logLines.joined(separator: "\n") + "\n")
         try writeArtifact(
-            to: jsonPath,
+            bundle: bundle,
             status: "success",
             exitCode: 0,
             summary: summary,
@@ -767,7 +863,7 @@ extension ReleaseCheckEngine {
     }
 
     private func writeArtifact(
-        to path: URL,
+        bundle: AdapterArtifactBundle,
         status: String,
         exitCode: Int,
         summary: String,
@@ -777,21 +873,40 @@ extension ReleaseCheckEngine {
         records: [StepRecord],
         artifacts: [String]
     ) throws {
-        let payload = ArtifactPayload(
-            command: "release-check",
-            status: status,
-            exitCode: exitCode,
-            summary: summary,
-            mode: mode.rawValue,
-            failureCode: failureCode?.rawValue,
-            failedStep: failedStep?.rawValue,
-            steps: records,
-            artifacts: artifacts
+        _ = try AdapterArtifacts.write(
+            bundle: bundle,
+            envelope: AdapterRunEnvelope(
+                command: "release-check",
+                status: status,
+                exitCode: exitCode,
+                summary: summary,
+                payload: ArtifactPayload(
+                    command: "release-check",
+                    status: status,
+                    exitCode: exitCode,
+                    summary: summary,
+                    mode: mode.rawValue,
+                    failureCode: failureCode?.rawValue,
+                    failedStep: failedStep?.rawValue,
+                    steps: records,
+                    artifacts: artifacts
+                )
+            ),
+            stdout: logLines(records: records, summary: summary, mode: mode),
+            stderr: ""
         )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(payload)
-        try RuntimeSupport.writeFile(to: path, data: data)
+    }
+
+    private func logLines(records: [StepRecord], summary: String, mode: ReleaseCheckMode) -> String {
+        var lines: [String] = [
+            "# bos release-check",
+            "mode=\(mode.rawValue)",
+            "summary=\(summary)"
+        ]
+        for record in records {
+            lines += logEntry(for: record)
+        }
+        return lines.joined(separator: "\n") + "\n"
     }
 
     private func truncate(_ text: String, limit: Int = 400) -> String {
@@ -799,6 +914,32 @@ extension ReleaseCheckEngine {
         guard trimmed.count > limit else { return trimmed }
         let end = trimmed.index(trimmed.startIndex, offsetBy: limit)
         return "\(trimmed[..<end])..."
+    }
+
+    private func syncState(
+        projectRoot: URL,
+        mode: ReleaseCheckMode,
+        status: String,
+        summary: String,
+        records: [StepRecord],
+        nextStep: ReleaseCheckStep?,
+        failedStep: ReleaseCheckStep?,
+        failureCode: ReleaseCheckFailureCode?,
+        artifactDirectory: String?
+    ) {
+        BosStateStore.updateReleaseCheckState(
+            projectRoot: projectRoot,
+            mode: mode.rawValue,
+            status: status,
+            summary: summary,
+            completedSteps: records
+                .filter { $0.status == "success" }
+                .map { $0.step.rawValue },
+            nextStep: nextStep?.rawValue,
+            failedStep: failedStep?.rawValue,
+            failureCode: failureCode?.rawValue,
+            artifactDirectory: artifactDirectory
+        )
     }
 
     private func signingTeamMismatchSummary(

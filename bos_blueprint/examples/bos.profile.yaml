@@ -1,0 +1,12 @@
+schemaVersion: 1
+name: default
+identity:
+  companyName: Example Inc.
+  appName: Example App
+  appIdentifier: com.example.app
+  appleTeamId: A1B2C3D4E5
+release:
+  primaryLanguage: en-US
+  sku: example.app.20260313
+  appStoreAppId: ""
+  matchGitURL: git@github.com:example/certificates.git

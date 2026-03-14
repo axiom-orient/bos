@@ -12,6 +12,9 @@ enum ExitCode: Int32 {
     case appRegisterFailed = 8
     case releaseRunFailed = 9
     case ascFailed = 10
+    case metadataFailed = 11
+    case screenshotsFailed = 12
+    case deviceFailed = 13
 }
 
 enum OutputFormat: String {
@@ -111,12 +114,75 @@ struct AppRegisterCommandOutput: Codable {
     let artifacts: [String]
 }
 
+struct MetadataCommandOutput: Codable {
+    let command: String
+    let status: String
+    let exitCode: Int
+    let summary: String
+    let subcommand: String
+    let directory: String
+    let defaultLocale: String
+    let locales: [String]
+    let hasChanges: Bool?
+    let changedFiles: [String]?
+    let missingLocales: [String]?
+    let extraFiles: [String]?
+    let valid: Bool?
+    let missingRequiredFiles: [String]?
+    let emptyRequiredFiles: [String]?
+    let pushedLocales: [String]?
+    let skippedLocales: [String]?
+    let failureCode: String?
+    let artifacts: [String]
+}
+
+struct ScreenshotsCommandOutput: Codable {
+    let command: String
+    let status: String
+    let exitCode: Int
+    let summary: String
+    let subcommand: String
+    let planPath: String
+    let defaultLocale: String
+    let localeCount: Int?
+    let deviceCount: Int?
+    let shotCount: Int?
+    let capturedShots: [String]?
+    let failedShots: [String]?
+    let outputDirectory: String?
+    let composedFiles: [String]?
+    let missingOutputs: [String]?
+    let valid: Bool?
+    let unexpectedFiles: [String]?
+    let failureCode: String?
+    let artifacts: [String]
+}
+
+struct DeviceCommandOutput: Codable {
+    let command: String
+    let status: String
+    let exitCode: Int
+    let summary: String
+    let subcommand: String
+    let devices: [DeviceRecord]?
+    let targetDevice: String?
+    let appPath: String?
+    let bundleIdentifier: String?
+    let logLines: [String]?
+    let findings: [String]?
+    let failureCode: String?
+    let artifacts: [String]
+}
+
 enum BosCommand: String, CaseIterable {
     case doctor
     case plan
     case apply
     case verify
     case asc
+    case metadata
+    case screenshots
+    case device
     case appRegister = "app-register"
     case releaseInit = "release-init"
     case releaseCheck = "release-check"
@@ -134,6 +200,12 @@ enum BosCommand: String, CaseIterable {
             return "tuist/xcodebuild 검증 게이트 실행"
         case .asc:
             return "BOS context로 asc 전체 저수준 표면 실행"
+        case .metadata:
+            return "App Store metadata pull/diff/push/validate"
+        case .screenshots:
+            return "App Store screenshots plan/capture/compose/validate"
+        case .device:
+            return "Device list/register/install/launch/logs/doctor"
         case .appRegister:
             return "App Store Connect 앱/Bundle ID 등록 + profile SSOT 동기화"
         case .releaseInit:
@@ -157,6 +229,12 @@ enum BosCommand: String, CaseIterable {
             return "bos verify [--profile <path>] [--project-root <path>] [--format human|json]"
         case .asc:
             return "bos asc <asc-subcommand...>"
+        case .metadata:
+            return "bos metadata <pull|diff|push|validate> [--profile <path>] [--project-root <path>] [--format human|json]"
+        case .screenshots:
+            return "bos screenshots <plan|capture|compose|validate> [--plan <path>] [--project-root <path>] [--format human|json]"
+        case .device:
+            return "bos device <list|register|install|launch|logs|doctor> [--device-id <id>] [--name <name>] [--app <path>] [--bundle-id <id>] [--project-root <path>] [--format human|json]"
         case .appRegister:
             return "bos app-register [--blueprint <path>] [--profile <path>] [--project-root <path>] [--company-name <name>] [--app-name <name>] [--app-identifier <id>] [--apple-team-id <team>] [--primary-language en-US|ko-KR] [--sku <value>] [--match-git-url <url>] [--format human|json]"
         case .releaseInit:

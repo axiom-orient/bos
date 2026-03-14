@@ -2,6 +2,35 @@ import Foundation
 import BosCore
 import os
 
+private func drainPipeToBuffer(
+    _ pipe: Pipe,
+    buffer: ThreadSafeDataBuffer
+) -> DispatchGroup {
+    let group = DispatchGroup()
+    group.enter()
+    DispatchQueue.global(qos: .userInitiated).async {
+        buffer.append(pipe.fileHandleForReading.readDataToEndOfFile())
+        group.leave()
+    }
+    return group
+}
+
+private struct ThreadSafeDataBuffer: Sendable {
+    private let lock = OSAllocatedUnfairLock(initialState: Data())
+
+    func append(_ data: Data) {
+        lock.withLock { storage in
+            storage.append(data)
+        }
+    }
+
+    func snapshot() -> Data {
+        lock.withLock { storage in
+            storage
+        }
+    }
+}
+
 func extractFirstSemanticVersion(from text: String) -> String? {
     let pattern = #"\d+(?:\.\d+){1,3}"#
     guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
@@ -18,22 +47,6 @@ func runProcess(
     workingDirectory: URL? = nil,
     environment: [String: String]? = nil
 ) throws -> (status: Int32, stdout: String, stderr: String) {
-    struct ThreadSafeDataBuffer: Sendable {
-        private let lock = OSAllocatedUnfairLock(initialState: Data())
-
-        func append(_ data: Data) {
-            lock.withLock { storage in
-                storage.append(data)
-            }
-        }
-
-        func snapshot() -> Data {
-            lock.withLock { storage in
-                storage
-            }
-        }
-    }
-
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
     process.arguments = command
@@ -49,27 +62,13 @@ func runProcess(
 
     let stdoutBuffer = ThreadSafeDataBuffer()
     let stderrBuffer = ThreadSafeDataBuffer()
-    stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-        let chunk = handle.availableData
-        guard !chunk.isEmpty else { return }
-        stdoutBuffer.append(chunk)
-    }
-    stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-        let chunk = handle.availableData
-        guard !chunk.isEmpty else { return }
-        stderrBuffer.append(chunk)
-    }
+    let stdoutGroup = drainPipeToBuffer(stdoutPipe, buffer: stdoutBuffer)
+    let stderrGroup = drainPipeToBuffer(stderrPipe, buffer: stderrBuffer)
 
     try process.run()
     process.waitUntilExit()
-
-    stdoutPipe.fileHandleForReading.readabilityHandler = nil
-    stderrPipe.fileHandleForReading.readabilityHandler = nil
-
-    let remainingStdout = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-    let remainingStderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-    stdoutBuffer.append(remainingStdout)
-    stderrBuffer.append(remainingStderr)
+    stdoutGroup.wait()
+    stderrGroup.wait()
 
     let stdout = String(decoding: stdoutBuffer.snapshot(), as: UTF8.self)
     let stderr = String(decoding: stderrBuffer.snapshot(), as: UTF8.self)

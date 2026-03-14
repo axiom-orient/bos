@@ -15,9 +15,10 @@ This guide answers only four things:
 
 | Path | Purpose | How it appears |
 |---|---|---|
-| `.bos/config/profile.yaml` | non-secret onboarding SSOT | auto-created on first profile-using command |
-| `.bos/config/signing.env` | signing and App Store Connect secrets | auto-created by release-scoped commands |
-| `.bos/plan/blueprint.yaml` | generated scaffold and release input | created by `bos plan` or passed with `--blueprint` |
+| `bos.project.yaml` | root sentinel and path registry | committed in the repository root |
+| `config/bos.profile.yaml` | non-secret onboarding SSOT | auto-created on first profile-using command |
+| `.bos/secrets/signing.env` | signing and App Store Connect secrets | auto-created by release-scoped commands |
+| `config/blueprint.lock.yaml` | generated scaffold and release input | created by `bos plan` or passed with `--blueprint` |
 | `config/toolchain.lock.yaml` | local toolchain policy | created by `bos doctor` when missing |
 
 Rules:
@@ -26,11 +27,12 @@ Rules:
 - `signing.env` is secret and should not contain real values in git.
 - `appStoreAppId` is not a secret. Keep it in `profile.yaml`, not `signing.env`.
 - `blueprint.yaml` is usually generated, not handwritten.
-- the only default blueprint path is `.bos/plan/blueprint.yaml`.
+- `config/blueprint.lock.yaml` is the canonical default blueprint path.
+- `.bos/config/profile.yaml`, `.bos/config/signing.env`, and `.bos/plan/blueprint.yaml` are legacy compatibility paths only.
 
 ## Minimal Reference Shapes
 
-### `.bos/config/profile.yaml`
+### `config/bos.profile.yaml`
 
 ```yaml
 # bos profile (safe to commit)
@@ -76,7 +78,7 @@ Commonly useful:
 - `identity.companyName`
 - `release.primaryLanguage`
 
-### `.bos/config/signing.env`
+### `.bos/secrets/signing.env`
 
 ```env
 # bos signing environment (do not commit real values)
@@ -108,7 +110,7 @@ Convert `.p8` to base64:
 base64 -i /path/to/AuthKey_AB12CD34EF.p8 | tr -d '\n'
 ```
 
-### `.bos/plan/blueprint.yaml`
+### `config/blueprint.lock.yaml`
 
 ```yaml
 schemaVersion: 1
@@ -207,7 +209,7 @@ bos doctor --for release-init --format json
 bos doctor --for release-check --format json
 ```
 
-If the target project does not have `.bos/plan/blueprint.yaml`, generate it first:
+If the target project does not have `config/blueprint.lock.yaml`, generate it first:
 
 ```bash
 bos plan --plan-dir ./PLAN
@@ -228,13 +230,13 @@ This repository is the `bos` product repository, not a generated app project.
 
 That means:
 
-- `.bos/config/profile.yaml` and `.bos/config/signing.env` here are templates
-- `.bos/plan/blueprint.yaml` does not exist by default here
+- `config/bos.profile.yaml` and `.bos/secrets/signing.env` here are templates
+- `config/blueprint.lock.yaml` does not exist by default here
 - real onboarding and release validation must happen in the target app project
 
 ## Related Docs
 
-- [README](/Users/axient/repository/bos/README.md)
-- [Product Guide](/Users/axient/repository/bos/docs/PRODUCT_GUIDE.md)
-- [Architecture](/Users/axient/repository/bos/docs/ARCHITECTURE.md)
-- [Testing Guide](/Users/axient/repository/bos/docs/TESTING_GUIDE.md)
+- [README](../README.md)
+- [Product Guide](../docs/PRODUCT_GUIDE.md)
+- [Architecture](../docs/ARCHITECTURE.md)
+- [Testing Guide](../docs/TESTING_GUIDE.md)

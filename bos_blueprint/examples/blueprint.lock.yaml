@@ -1,0 +1,22 @@
+schemaVersion: 1
+project:
+  name: Example
+  bundleIdPrefix: com.example
+  deploymentTarget: "18.0"
+modules:
+  app:
+    name: ExampleApp
+    features: [Root, Home]
+    domains: [User]
+    services: [Auth]
+    shared: [Core, DesignSystem]
+wiring:
+  rootFeature: Root
+release:
+  fastlane:
+    appIdentifier: com.example.app
+    appleTeamId: A1B2C3D4E5
+    appName: Example App
+    sku: example.app.20260313
+    primaryLanguage: en-US
+    companyName: Example Inc.

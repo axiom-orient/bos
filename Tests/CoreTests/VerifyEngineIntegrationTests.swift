@@ -39,23 +39,32 @@ struct VerifyEngineIntegrationTests {
         let rootPath = root.path(percentEncoded: false)
         #expect(runner.workingDirectories == [rootPath, rootPath, rootPath, rootPath])
 
-        let jsonPath = try #require(result.artifacts.first(where: { $0.hasSuffix(".json") }))
-        let logPath = try #require(result.artifacts.first(where: { $0.hasSuffix(".log") }))
+        let jsonPath = try #require(result.artifacts.first(where: { $0.hasSuffix("/run.json") }))
+        let stdoutPath = try #require(result.artifacts.first(where: { $0.hasSuffix("/stdout.log") }))
+        let stderrPath = try #require(result.artifacts.first(where: { $0.hasSuffix("/stderr.log") }))
+        let manifestPath = try #require(result.artifacts.first(where: { $0.hasSuffix("/manifest.json") }))
         #expect(FileManager.default.fileExists(atPath: jsonPath))
-        #expect(FileManager.default.fileExists(atPath: logPath))
+        #expect(FileManager.default.fileExists(atPath: stdoutPath))
+        #expect(FileManager.default.fileExists(atPath: stderrPath))
+        #expect(FileManager.default.fileExists(atPath: manifestPath))
 
-        let log = try String(contentsOfFile: logPath, encoding: .utf8)
+        let log = try String(contentsOfFile: stdoutPath, encoding: .utf8)
         #expect(log.contains("tuist install"))
         #expect(log.contains("xcodebuild build -scheme DaycraftApp"))
         #expect(log.contains("xcodebuild test -scheme DaycraftApp"))
 
         let payloadData = try Data(contentsOf: URL(fileURLWithPath: jsonPath))
-        let payload = try JSONDecoder().decode(VerifyArtifactPayload.self, from: payloadData)
-        #expect(payload.command == "verify")
-        #expect(payload.status == "success")
-        #expect(payload.exitCode == 0)
+        let envelope = try JSONDecoder().decode(AdapterRunEnvelope<VerifyArtifactPayload>.self, from: payloadData)
+        let payload = envelope.payload
+        #expect(envelope.command == "verify")
+        #expect(envelope.status == "success")
+        #expect(envelope.exitCode == 0)
         #expect(payload.failureCode == nil)
         #expect(payload.failedStep == nil)
+
+        let manifestData = try Data(contentsOf: URL(fileURLWithPath: manifestPath))
+        let manifest = try JSONDecoder().decode(AdapterArtifactManifest.self, from: manifestData)
+        #expect(manifest.files.map(\.kind) == ["run", "stdout", "stderr", "manifest"])
     }
 
     @Test func verifyUsesSanitizedProfileNameWhenProjectSchemeMissing() throws {
@@ -99,8 +108,8 @@ struct VerifyEngineIntegrationTests {
             ["xcodebuild", "test", "-scheme", "DaycraftApp", "-destination", "id=SIM-DEVICE-1234", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"]
         )
 
-        let logPath = try #require(result.artifacts.first(where: { $0.hasSuffix(".log") }))
-        let log = try String(contentsOfFile: logPath, encoding: .utf8)
+        let stdoutPath = try #require(result.artifacts.first(where: { $0.hasSuffix("/stdout.log") }))
+        let log = try String(contentsOfFile: stdoutPath, encoding: .utf8)
         #expect(log.contains("testDestination=id=SIM-DEVICE-1234"))
     }
 
@@ -242,7 +251,7 @@ struct VerifyEngineIntegrationTests {
         let statePath = root.appending(path: ".bos/state/bos.state.yaml")
         let state = try String(contentsOf: statePath, encoding: .utf8)
         #expect(state.contains("verifySummary:"))
-        #expect(state.contains("status: \"success\""))
+        #expect(state.contains("status: success"))
         #expect(state.contains("Verify pipeline passed"))
     }
 
@@ -279,13 +288,13 @@ struct VerifyEngineIntegrationTests {
         let statePath = root.appending(path: ".bos/state/bos.state.yaml")
         let state = try String(contentsOf: statePath, encoding: .utf8)
         #expect(state.contains("verifySummary:"))
-        #expect(state.contains("status: \"failed\""))
+        #expect(state.contains("status: failed"))
         #expect(state.contains("Verify failed at xcodebuild-test (E-TEST)"))
     }
 }
 
 private extension VerifyEngineIntegrationTests {
-    struct VerifyArtifactPayload: Decodable {
+    struct VerifyArtifactPayload: Codable {
         let command: String
         let status: String
         let exitCode: Int
@@ -346,14 +355,15 @@ private extension VerifyEngineIntegrationTests {
             #expect(classification == expectedClassification)
             #expect(step == expectedStep)
             #expect(exitCode != 0)
-            let jsonPath = try #require(artifacts.first(where: { $0.hasSuffix(".json") }))
+            let jsonPath = try #require(artifacts.first(where: { $0.hasSuffix("/run.json") }))
             let payloadData = try Data(contentsOf: URL(fileURLWithPath: jsonPath))
-            let payload = try JSONDecoder().decode(VerifyArtifactPayload.self, from: payloadData)
-            #expect(payload.status == "failed")
-            #expect(payload.exitCode == 4)
+            let envelope = try JSONDecoder().decode(AdapterRunEnvelope<VerifyArtifactPayload>.self, from: payloadData)
+            let payload = envelope.payload
+            #expect(envelope.status == "failed")
+            #expect(envelope.exitCode == 4)
             #expect(payload.failureCode == expectedClassification.rawValue)
             #expect(payload.failedStep == expectedStep.rawValue)
-            #expect(payload.artifacts.count == 2)
+            #expect(payload.artifacts.count == 4)
         } catch {
             Issue.record("unexpected error: \(error)")
         }

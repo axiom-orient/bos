@@ -12,6 +12,9 @@ struct CLIJsonOutputIntegrationTests {
             ("plan", ["plan", "--prd", "--format", "json"]),
             ("apply", ["apply", "--blueprint", "--format", "json"]),
             ("verify", ["verify", "--project-root", "--format", "json"]),
+            ("metadata", ["metadata", "pull", "--profile", "--format", "json"]),
+            ("screenshots", ["screenshots", "plan", "--plan", "--format", "json"]),
+            ("device", ["device", "install", "--app", "--format", "json"]),
             ("app-register", ["app-register", "--app-name", "--format", "json"]),
             ("release-init", ["release-init", "--blueprint", "--format", "json"]),
             ("release-check", ["release-check", "--project-root", "--mode", "--format", "json"]),
@@ -148,7 +151,7 @@ struct CLIJsonOutputIntegrationTests {
             args: [
                 "release-init",
                 "--project-root", root.path(percentEncoded: false),
-                "--blueprint", ".bos/plan/blueprint.yaml",
+                "--blueprint", "config/blueprint.lock.yaml",
                 "--format", "json"
             ],
             cwd: root,
@@ -174,7 +177,7 @@ struct CLIJsonOutputIntegrationTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let prd = root.appending(path: "PRD.md")
-        let signingEnv = root.appending(path: ".bos/config/signing.env")
+        let signingEnv = root.appending(path: ".bos/secrets/signing.env")
         try Data(
             """
             Project: Daycraft
@@ -218,20 +221,236 @@ struct CLIJsonOutputIntegrationTests {
             args: [
                 "release-init",
                 "--project-root", root.path(percentEncoded: false),
-                "--blueprint", ".bos/plan/blueprint.yaml",
+                "--blueprint", "config/blueprint.lock.yaml",
                 "--format", "json"
             ],
             cwd: root,
-            environment: [
-                "BOS_AUTO_INSTALL": "0",
-                "ASC_ISSUER_ID": "",
-                "ASC_KEY_ID": "",
-                "ASC_KEY_P8_BASE64": "",
-                "MATCH_GIT_URL": "",
-                "MATCH_PASSWORD": ""
-            ]
+            environment: emptySigningEnvironment()
         )
         #expect(releaseInitResult.status == 0)
+    }
+
+    @Test func planCreatesCanonicalProfileAndBlueprintByDefault() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let prd = root.appending(path: "PRD.md")
+        try Data(
+            """
+            Project: Daycraft
+            App Identifier: com.axiomorient.daycraft
+            Apple Team ID: A1B2C3D4E5
+
+            Requirements
+            - REQ-001 홈 화면 진입
+
+            Screens
+            - SCR_TODAY_HOME
+
+            Entities
+            - Entity: User
+            """.utf8
+        ).write(to: prd, options: .atomic)
+
+        let result = try runBootstrap(
+            args: [
+                "plan",
+                "--project-root", root.path(percentEncoded: false),
+                "--prd", "PRD.md",
+                "--format", "json"
+            ],
+            cwd: root
+        )
+
+        #expect(result.status == 0)
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "config/bos.profile.yaml").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "config/blueprint.lock.yaml").path(percentEncoded: false)))
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: ".bos/config/profile.yaml").path(percentEncoded: false)))
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: ".bos/plan/blueprint.yaml").path(percentEncoded: false)))
+    }
+
+    @Test func releaseInitDiscoversProjectRootFromBosProjectManifest() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let nested = root.appending(path: "nested/work")
+        let blueprint = root.appending(path: "config/blueprint.lock.yaml")
+        let profile = root.appending(path: "config/bos.profile.yaml")
+        let signingEnv = root.appending(path: ".bos/secrets/signing.env")
+
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: blueprint.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: profile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: signingEnv.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(
+            """
+            schemaVersion: 1
+            product:
+              mode: single-app
+            paths:
+              profile: config/bos.profile.yaml
+              blueprintLock: config/blueprint.lock.yaml
+              releasePolicy: config/release.policy.yaml
+              screenshotsPlan: config/screenshots.plan.yaml
+              signingEnv: .bos/secrets/signing.env
+              state: .bos/state/bos.state.yaml
+            """.utf8
+        ).write(to: root.appending(path: "bos.project.yaml"), options: .atomic)
+        try Data(
+            """
+            schemaVersion: 1
+            project:
+              name: Daycraft
+              bundleIdPrefix: com.axiomorient
+              deploymentTarget: "18.0"
+            requirements:
+              reqIds: [REQ-001]
+              screens: [SCR_TODAY_HOME]
+            modules:
+              app:
+                name: Daycraft
+              features: [Root]
+              domains: [User]
+              services: [UserService]
+              shared: [Core, DesignSystem]
+            wiring:
+              rootFeature: Root
+            release:
+              fastlane:
+                appIdentifier: com.axiomorient.daycraft
+                appleTeamId: A1B2C3D4E5
+                appName: Daycraft
+                sku: axiom-orient.daycraft.04805b02
+                primaryLanguage: en-US
+                companyName: Axiom Orient
+            """.utf8
+        ).write(to: blueprint, options: .atomic)
+        try Data(defaultProfileYAML().utf8).write(to: profile, options: .atomic)
+        try Data(
+            """
+            ASC_ISSUER_ID=123E4567-E89B-12D3-A456-426614174000
+            ASC_KEY_ID=AB12CD34EF
+            ASC_KEY_P8_BASE64=c3VwZXItc2VjcmV0
+            MATCH_GIT_URL=git@github.com:org/certs.git
+            MATCH_PASSWORD=secret
+            """.utf8
+        ).write(to: signingEnv, options: .atomic)
+
+        let result = try runBootstrap(
+            args: [
+                "release-init",
+                "--format", "json"
+            ],
+            cwd: nested,
+            environment: emptySigningEnvironment()
+        )
+
+        #expect(result.status == 0)
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "fastlane/Fastfile").path(percentEncoded: false)))
+    }
+
+    @Test func doctorMigratesLegacyProfilePathToCanonicalLocation() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let nested = root.appending(path: "nested/work")
+        let legacyProfile = root.appending(path: ".bos/config/profile.yaml")
+        let canonicalProfile = root.appending(path: "config/bos.profile.yaml")
+
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: legacyProfile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(defaultProfileYAML().utf8).write(to: legacyProfile, options: .atomic)
+
+        let result = try runBootstrap(
+            args: [
+                "doctor",
+                "--for", "app-register",
+                "--format", "json"
+            ],
+            cwd: nested,
+            environment: developerToolEnvironment().merging(
+                [
+                    "ASC_ISSUER_ID": "123E4567-E89B-12D3-A456-426614174000",
+                    "ASC_KEY_ID": "AB12CD34EF",
+                    "ASC_KEY_P8_BASE64": "c3VwZXItc2VjcmV0"
+                ],
+                uniquingKeysWith: { _, new in new }
+            )
+        )
+
+        let payload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(result.stdout.utf8))
+        #expect(payload.command == "doctor")
+        #expect(payload.scope == "app-register")
+        #expect(FileManager.default.fileExists(atPath: legacyProfile.path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: canonicalProfile.path(percentEncoded: false)))
+    }
+
+    @Test func releaseInitMigratesLegacyBlueprintAndSigningEnvToCanonicalLocations() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let nested = root.appending(path: "nested/work")
+        let legacyBlueprint = root.appending(path: ".bos/plan/blueprint.yaml")
+        let canonicalBlueprint = root.appending(path: "config/blueprint.lock.yaml")
+        let legacySigningEnv = root.appending(path: ".bos/config/signing.env")
+        let canonicalSigningEnv = root.appending(path: ".bos/secrets/signing.env")
+
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: legacyBlueprint.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: legacySigningEnv.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(
+            """
+            schemaVersion: 1
+            project:
+              name: Daycraft
+              bundleIdPrefix: com.axiomorient
+              deploymentTarget: "18.0"
+            requirements:
+              reqIds: [REQ-001]
+              screens: [SCR_TODAY_HOME]
+            modules:
+              app:
+                name: Daycraft
+              features: [Root]
+              domains: [User]
+              services: [UserService]
+              shared: [Core, DesignSystem]
+            wiring:
+              rootFeature: Root
+            release:
+              fastlane:
+                appIdentifier: com.axiomorient.daycraft
+                appleTeamId: A1B2C3D4E5
+                appName: Daycraft
+                sku: axiom-orient.daycraft.04805b02
+                primaryLanguage: en-US
+                companyName: Axiom Orient
+            """.utf8
+        ).write(to: legacyBlueprint, options: .atomic)
+        try Data(
+            """
+            ASC_ISSUER_ID=123E4567-E89B-12D3-A456-426614174000
+            ASC_KEY_ID=AB12CD34EF
+            ASC_KEY_P8_BASE64=c3VwZXItc2VjcmV0
+            MATCH_GIT_URL=git@github.com:org/certs.git
+            MATCH_PASSWORD=secret
+            """.utf8
+        ).write(to: legacySigningEnv, options: .atomic)
+
+        let result = try runBootstrap(
+            args: [
+                "release-init",
+                "--format", "json"
+            ],
+            cwd: nested,
+            environment: emptySigningEnvironment()
+        )
+
+        #expect(result.status == 0)
+        #expect(FileManager.default.fileExists(atPath: legacyBlueprint.path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: canonicalBlueprint.path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: legacySigningEnv.path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: canonicalSigningEnv.path(percentEncoded: false)))
     }
 
     @Test func releaseInitUsesDefaultPlanBlueprintPath() throws {
@@ -294,6 +513,124 @@ struct CLIJsonOutputIntegrationTests {
         let payload = try JSONDecoder().decode(CommandOutput.self, from: Data(result.stdout.utf8))
         #expect(payload.command == "release-init")
         #expect(FileManager.default.fileExists(atPath: root.appending(path: "fastlane/Fastfile").path(percentEncoded: false)))
+    }
+
+    @Test func canonicalFreshCloneWorkflowRunsWithoutLegacyPaths() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try Data(
+            """
+            schemaVersion: 1
+            product:
+              mode: single-app
+            paths:
+              profile: config/bos.profile.yaml
+              blueprintLock: config/blueprint.lock.yaml
+              releasePolicy: config/release.policy.yaml
+              screenshotsPlan: config/screenshots.plan.yaml
+              signingEnv: .bos/secrets/signing.env
+              state: .bos/state/bos.state.yaml
+            """.utf8
+        ).write(to: root.appending(path: "bos.project.yaml"), options: .atomic)
+
+        let prd = root.appending(path: "PRD.md")
+        try Data(
+            """
+            Project: Daycraft
+            App Identifier: com.axiomorient.daycraft
+            Apple Team ID: A1B2C3D4E5
+
+            Requirements
+            - REQ-001 홈 화면 진입
+
+            Screens
+            - SCR_TODAY_HOME
+            - SCR_TASK_DETAIL
+
+            Entities
+            - Entity: User
+            """.utf8
+        ).write(to: prd, options: .atomic)
+
+        let screenshotsPlan = root.appending(path: "config/screenshots.plan.yaml")
+        try FileManager.default.createDirectory(at: screenshotsPlan.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(
+            """
+            schemaVersion: 1
+            defaultLocale: en-US
+            locales:
+              - locale: en-US
+                displayName: English (US)
+            devices:
+              - id: iphone-69
+                name: iPhone 16 Pro Max
+                family: iphone
+                platform: simulator
+                orientation: portrait
+                pixelSize:
+                  width: 1320
+                  height: 2868
+            shots:
+              - id: today-home
+                screenID: SCR_TODAY_HOME
+                locales: [en-US]
+                devices: [iphone-69]
+                outputName: today-home
+            export:
+              rootDirectory: screenshots/export
+              format: png
+              includeFrame: false
+            """.utf8
+        ).write(to: screenshotsPlan, options: .atomic)
+
+        let signingEnv = root.appending(path: ".bos/secrets/signing.env")
+        try FileManager.default.createDirectory(at: signingEnv.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(
+            """
+            ASC_ISSUER_ID=123E4567-E89B-12D3-A456-426614174000
+            ASC_KEY_ID=AB12CD34EF
+            ASC_KEY_P8_BASE64=c3VwZXItc2VjcmV0
+            MATCH_GIT_URL=git@github.com:org/certs.git
+            MATCH_PASSWORD=match-secret
+            """.utf8
+        ).write(to: signingEnv, options: .atomic)
+
+        let plan = try runBootstrap(
+            args: ["plan", "--project-root", root.path(percentEncoded: false), "--prd", "PRD.md", "--format", "json"],
+            cwd: root
+        )
+        #expect(plan.status == 0)
+
+        let apply = try runBootstrap(
+            args: ["apply", "--project-root", root.path(percentEncoded: false), "--mode", "init", "--format", "json"],
+            cwd: root
+        )
+        #expect(apply.status == 0)
+
+        let releaseInit = try runBootstrap(
+            args: ["release-init", "--project-root", root.path(percentEncoded: false), "--format", "json"],
+            cwd: root,
+            environment: emptySigningEnvironment()
+        )
+        #expect(releaseInit.status == 0)
+
+        let screenshots = try runBootstrap(
+            args: ["screenshots", "plan", "--project-root", root.path(percentEncoded: false), "--format", "json"],
+            cwd: root
+        )
+        #expect(screenshots.status == 0)
+
+        let device = try runBootstrap(
+            args: ["device", "list", "--project-root", root.path(percentEncoded: false), "--format", "json"],
+            cwd: root
+        )
+        #expect(device.status == 0)
+
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "config/bos.profile.yaml").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "config/blueprint.lock.yaml").path(percentEncoded: false)))
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: ".bos/config/profile.yaml").path(percentEncoded: false)))
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: ".bos/plan/blueprint.yaml").path(percentEncoded: false)))
     }
 
     @Test func appRegisterUsesDefaultPlanBlueprintWhenProfileOmitsIdentity() throws {
@@ -757,7 +1094,11 @@ struct CLIJsonOutputIntegrationTests {
             cwd: root,
             environment: developerToolEnvironment()
         )
-        #expect(result.status == 0)
+
+        let payload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(result.stdout.utf8))
+        #expect(payload.command == "doctor")
+        #expect(payload.scope == "core")
+        #expect(result.stdout.contains("Initialized toolchain lock"))
 
         let generated = root.appending(path: "config/toolchain.lock.yaml")
         #expect(FileManager.default.fileExists(atPath: generated.path(percentEncoded: false)))
@@ -765,6 +1106,12 @@ struct CLIJsonOutputIntegrationTests {
         let content = try String(contentsOf: generated, encoding: .utf8)
         #expect(content.contains("schemaVersion: 2"))
         #expect(content.contains("requiredFor"))
+        #expect(content.contains("xcode:"))
+        #expect(content.contains("ruby:"))
+        #expect(content.contains("bundler:"))
+        #expect(content.contains("node:"))
+        #expect(content.contains("devicectl:"))
+        #expect(content.contains("simctl:"))
     }
 
     @Test func doctorIgnoresDeprecatedLockPathAndInitializesConfigLock() throws {
@@ -819,7 +1166,8 @@ struct CLIJsonOutputIntegrationTests {
                 "--for", "core",
                 "--format", "json"
             ],
-            cwd: root
+            cwd: root,
+            environment: ["BOS_AUTO_INSTALL": "1"]
         )
         #expect(result.status != 2)
         #expect(FileManager.default.fileExists(atPath: preferredPath.path(percentEncoded: false)))
@@ -833,6 +1181,15 @@ struct CLIJsonOutputIntegrationTests {
     @Test func doctorAutoInstallReportsSkippedWhenInstallerIsUnavailable() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
+
+        _ = try writeFakeExecutable(
+            root: root,
+            name: "brew",
+            body: """
+            echo "brew unavailable for test" >&2
+            exit 127
+            """
+        )
 
         let lockPath = root.appending(path: "config/toolchain.lock.yaml")
         try FileManager.default.createDirectory(at: lockPath.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -874,14 +1231,17 @@ struct CLIJsonOutputIntegrationTests {
                 "--for", "core",
                 "--format", "json"
             ],
-            cwd: root
+            cwd: root,
+            environment: try doctorCoreReadyEnvironment(root: root).merging(
+                ["BOS_AUTO_INSTALL": "1"],
+                uniquingKeysWith: { _, new in new }
+            )
         )
         #expect(result.status == 6)
 
         let payload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(result.stdout.utf8))
         #expect(payload.command == "doctor")
         #expect(payload.status == "failed")
-        // tuist auto-install always uses brew (hardcoded), so an attempt is made regardless of installHints
         #expect(payload.installAttempts.contains(where: { $0.tool == "tuist" }))
     }
 
@@ -889,7 +1249,7 @@ struct CLIJsonOutputIntegrationTests {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let signingPath = root.appending(path: ".bos/config/signing.env")
+        let signingPath = root.appending(path: ".bos/secrets/signing.env")
         let result = try runBootstrap(
             args: [
                 "doctor",
@@ -897,7 +1257,7 @@ struct CLIJsonOutputIntegrationTests {
                 "--format", "json"
             ],
             cwd: root,
-            environment: developerToolEnvironment().merging(
+            environment: try doctorCoreReadyEnvironment(root: root).merging(
                 [
                     "ASC_ISSUER_ID": "",
                     "ASC_KEY_ID": "",
@@ -922,7 +1282,7 @@ struct CLIJsonOutputIntegrationTests {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let signingPath = root.appending(path: ".bos/config/signing.env")
+        let signingPath = root.appending(path: ".bos/secrets/signing.env")
         let result = try runBootstrap(
             args: [
                 "doctor",
@@ -956,7 +1316,7 @@ struct CLIJsonOutputIntegrationTests {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let signingPath = root.appending(path: ".bos/config/signing.env")
+        let signingPath = root.appending(path: ".bos/secrets/signing.env")
         let ascBin = try writeFakeExecutable(
             root: root,
             name: "asc",
@@ -1077,9 +1437,13 @@ struct CLIJsonOutputIntegrationTests {
 
         let artifactsDir = root.appending(path: ".bos/artifacts/asc")
         let files = try FileManager.default.contentsOfDirectory(at: artifactsDir, includingPropertiesForKeys: nil)
-        #expect(files.count == 2)
+        #expect(files.count == 1)
 
-        let logFile = try #require(files.first(where: { $0.lastPathComponent.hasSuffix(".log") }))
+        let bundleDir = try #require(files.first)
+        let bundleFiles = try FileManager.default.contentsOfDirectory(at: bundleDir, includingPropertiesForKeys: nil)
+        #expect(Set(bundleFiles.map(\.lastPathComponent)) == ["run.json", "stdout.log", "stderr.log", "manifest.json"])
+
+        let logFile = bundleDir.appending(path: "stdout.log")
         let logContent = try String(contentsOf: logFile, encoding: .utf8)
         #expect(
             logContent.contains("<redacted:ASC_PRIVATE_KEY_B64>")
@@ -1138,7 +1502,6 @@ struct CLIJsonOutputIntegrationTests {
             cwd: root,
             environment: developerToolEnvironment()
         )
-        #expect(result.status == 0)
 
         let payload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(result.stdout.utf8))
         #expect(!payload.artifacts.isEmpty)
@@ -1152,13 +1515,14 @@ struct CLIJsonOutputIntegrationTests {
                     .hasPrefix(expectedPrefix + "/")
             }
         )
+        #expect(Set(payload.artifacts.map { URL(fileURLWithPath: $0).lastPathComponent }) == ["run.json", "stdout.log", "stderr.log", "manifest.json"])
     }
 
     @Test func doctorReportsDoctorFailureCodeOnInvalidSigningEnvironmentSyntax() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let signingPath = root.appending(path: ".bos/config/signing.env")
+        let signingPath = root.appending(path: ".bos/secrets/signing.env")
         try FileManager.default.createDirectory(at: signingPath.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(
             """
@@ -1189,7 +1553,7 @@ struct CLIJsonOutputIntegrationTests {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let signingPath = root.appending(path: ".bos/config/signing.env")
+        let signingPath = root.appending(path: ".bos/secrets/signing.env")
         try FileManager.default.createDirectory(at: signingPath.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(
             """
@@ -1230,7 +1594,7 @@ struct CLIJsonOutputIntegrationTests {
                 "--format", "json"
             ],
             cwd: root,
-            environment: developerToolEnvironment()
+            environment: try doctorCoreReadyEnvironment(root: root)
         )
         #expect(first.status == 0)
         let firstPayload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(first.stdout.utf8))
@@ -1245,7 +1609,7 @@ struct CLIJsonOutputIntegrationTests {
                 "--format", "json"
             ],
             cwd: root,
-            environment: developerToolEnvironment()
+            environment: try doctorCoreReadyEnvironment(root: root)
         )
         #expect(second.status == 0)
         let secondPayload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(second.stdout.utf8))
@@ -1288,7 +1652,7 @@ struct CLIJsonOutputIntegrationTests {
         )
         #expect(planResult.status == 0)
 
-        let signingPath = root.appending(path: ".bos/config/signing.env")
+        let signingPath = root.appending(path: ".bos/secrets/signing.env")
         try FileManager.default.createDirectory(at: signingPath.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(
             """
@@ -1301,7 +1665,7 @@ struct CLIJsonOutputIntegrationTests {
             args: [
                 "release-init",
                 "--project-root", root.path(percentEncoded: false),
-                "--blueprint", ".bos/plan/blueprint.yaml",
+                "--blueprint", "config/blueprint.lock.yaml",
                 "--format", "json"
             ],
             cwd: root
@@ -1394,7 +1758,9 @@ private extension CLIJsonOutputIntegrationTests {
         process.executableURL = try bootstrapBinaryURL()
         process.arguments = args
         process.currentDirectoryURL = cwd ?? repositoryRoot()
-        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
+        process.environment = ProcessInfo.processInfo.environment
+            .merging(["BOS_AUTO_INSTALL": "0"]) { _, new in new }
+            .merging(environment) { _, new in new }
 
         let captureDir = fm.temporaryDirectory
             .appendingPathComponent("bos-cli-capture-\(ProcessInfo.processInfo.globallyUniqueString)", isDirectory: true)
@@ -1510,6 +1876,66 @@ private extension CLIJsonOutputIntegrationTests {
             "BOS_AUTO_INSTALL": "0",
             "DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer"
         ]
+    }
+
+    func emptySigningEnvironment() -> [String: String] {
+        [
+            "BOS_AUTO_INSTALL": "0",
+            "ASC_ISSUER_ID": "",
+            "ASC_KEY_ID": "",
+            "ASC_KEY_P8_BASE64": "",
+            "MATCH_GIT_URL": "",
+            "MATCH_PASSWORD": ""
+        ]
+    }
+
+    func doctorCoreReadyEnvironment(root: URL) throws -> [String: String] {
+        let xcodebuild = try writeFakeExecutable(
+            root: root,
+            name: "xcodebuild",
+            body: """
+            if [ "$1" = "-version" ]; then
+              echo "Xcode 16.2"
+              echo "Build version 16C50"
+              exit 0
+            fi
+            exit 64
+            """
+        )
+        _ = try writeFakeExecutable(
+            root: root,
+            name: "xcode-select",
+            body: """
+            if [ "$1" = "-p" ]; then
+              echo "/Applications/Xcode.app/Contents/Developer"
+              exit 0
+            fi
+            exit 64
+            """
+        )
+        _ = try writeFakeExecutable(
+            root: root,
+            name: "xcrun",
+            body: """
+            if [ "$1" = "--find" ] && [ "$2" = "simctl" ]; then
+              echo "/Applications/Xcode.app/Contents/Developer/usr/bin/simctl"
+              exit 0
+            fi
+            if [ "$1" = "--find" ] && [ "$2" = "devicectl" ]; then
+              echo "/Applications/Xcode.app/Contents/Developer/usr/bin/devicectl"
+              exit 0
+            fi
+            exit 64
+            """
+        )
+
+        let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        return developerToolEnvironment().merging(
+            [
+                "PATH": "\(xcodebuild.deletingLastPathComponent().path(percentEncoded: false)):\(existingPath)"
+            ],
+            uniquingKeysWith: { _, new in new }
+        )
     }
 
     func writeReleaseCheckScaffold(root: URL) throws {

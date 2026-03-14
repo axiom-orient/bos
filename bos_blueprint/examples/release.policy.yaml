@@ -1,0 +1,8 @@
+schemaVersion: 1
+signing:
+  readinessMode: readonly-certs
+  allowWriteBootstrap: false
+distribution:
+  stages: [build, beta, release, submit]
+artifacts:
+  keepDays: 14

@@ -4,8 +4,8 @@
 
 `bos` is a Swift Package Manager CLI with one executable target and one core library:
 
-- CLI: [`Sources/BosCLI/`](/Users/axient/repository/bos/Sources/BosCLI)
-- Core library: [`Sources/BosCore/`](/Users/axient/repository/bos/Sources/BosCore)
+- CLI: [`Sources/BosCLI/`](../Sources/BosCLI)
+- Core library: [`Sources/BosCore/`](../Sources/BosCore)
 
 The design is intentionally flat. `BosCLI` now keeps dispatch, shared support, and each command entry in separate files, while each command is still handled by one focused engine in `BosCore`.
 
@@ -26,9 +26,10 @@ The design is intentionally flat. `BosCLI` now keeps dispatch, shared support, a
 ### Runtime Files
 
 - Toolchain policy: `config/toolchain.lock.yaml`
-- Onboarding SSOT: `.bos/config/profile.yaml`
-- Signing secrets: `.bos/config/signing.env`
-- Plan output: `.bos/plan/blueprint.yaml`
+- Root sentinel: `bos.project.yaml`
+- Onboarding SSOT: `config/bos.profile.yaml`
+- Signing secrets: `.bos/secrets/signing.env`
+- Plan output: `config/blueprint.lock.yaml`
 - State summary: `.bos/state/bos.state.yaml`
 - Artifacts: `.bos/artifacts/<command>/`
 
@@ -66,24 +67,27 @@ Responsibilities:
 
 CLI files:
 
-- [`main.swift`](/Users/axient/repository/bos/Sources/BosCLI/main.swift): entrypoint and command dispatch
-- [`CLIModels.swift`](/Users/axient/repository/bos/Sources/BosCLI/CLIModels.swift): exit codes, command enums, and JSON payload types
-- [`CLIParsing.swift`](/Users/axient/repository/bos/Sources/BosCLI/CLIParsing.swift): help text and option parsing
-- [`CLICommandContext.swift`](/Users/axient/repository/bos/Sources/BosCLI/CLICommandContext.swift): project-root/profile/blueprint/signing context loading
-- [`CLIPathSupport.swift`](/Users/axient/repository/bos/Sources/BosCLI/CLIPathSupport.swift): project-root, profile, blueprint, and toolchain path helpers
-- [`CLIConfigSupport.swift`](/Users/axient/repository/bos/Sources/BosCLI/CLIConfigSupport.swift): profile templates, signing env parsing, YAML encode/decode, and config file IO
-- [`CLIProcessSupport.swift`](/Users/axient/repository/bos/Sources/BosCLI/CLIProcessSupport.swift): process execution, version detection, and engine runner adapters
-- [`CLIOutputSupport.swift`](/Users/axient/repository/bos/Sources/BosCLI/CLIOutputSupport.swift): human/JSON rendering and terminal failure handling
-- [`DoctorSupport.swift`](/Users/axient/repository/bos/Sources/BosCLI/DoctorSupport.swift): doctor-specific tool detection, toolchain lock setup, and auto-install support
-- [`DoctorCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/DoctorCommand.swift): `doctor` adapter
-- [`PlanCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/PlanCommand.swift): `plan` adapter
-- [`ApplyCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/ApplyCommand.swift): `apply` adapter
-- [`VerifyCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/VerifyCommand.swift): `verify` adapter
-- [`ASCCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/ASCCommand.swift): raw `bos asc ...` adapter with BOS-managed env and artifacts
-- [`AppRegisterCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/AppRegisterCommand.swift): `app-register` adapter
-- [`ReleaseInitCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/ReleaseInitCommand.swift): `release-init` adapter
-- [`ReleaseCheckCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/ReleaseCheckCommand.swift): `release-check` adapter
-- [`ReleaseRunCommand.swift`](/Users/axient/repository/bos/Sources/BosCLI/ReleaseRunCommand.swift): `release-run` adapter
+- [`main.swift`](../Sources/BosCLI/main.swift): entrypoint and command dispatch
+- [`CLIModels.swift`](../Sources/BosCLI/CLIModels.swift): exit codes, command enums, and JSON payload types
+- [`CLIParsing.swift`](../Sources/BosCLI/CLIParsing.swift): help text and option parsing
+- [`CLICommandContext.swift`](../Sources/BosCLI/CLICommandContext.swift): project-root/profile/blueprint/signing context loading
+- [`CLIPathSupport.swift`](../Sources/BosCLI/CLIPathSupport.swift): project-root, profile, blueprint, toolchain path helpers
+- [`CLIConfigSupport.swift`](../Sources/BosCLI/CLIConfigSupport.swift): profile templates, signing env parsing, YAML encode/decode, and config file IO
+- [`CLIProcessSupport.swift`](../Sources/BosCLI/CLIProcessSupport.swift): process execution, version detection, and engine runner adapters
+- [`CLIOutputSupport.swift`](../Sources/BosCLI/CLIOutputSupport.swift): human/JSON rendering and terminal failure handling
+- [`DoctorSupport.swift`](../Sources/BosCLI/DoctorSupport.swift): doctor-specific tool detection, toolchain lock setup, and auto-install support
+- [`DoctorCommand.swift`](../Sources/BosCLI/DoctorCommand.swift): `doctor` adapter
+- [`PlanCommand.swift`](../Sources/BosCLI/PlanCommand.swift): `plan` adapter
+- [`ApplyCommand.swift`](../Sources/BosCLI/ApplyCommand.swift): `apply` adapter
+- [`VerifyCommand.swift`](../Sources/BosCLI/VerifyCommand.swift): `verify` adapter
+- [`ASCCommand.swift`](../Sources/BosCLI/ASCCommand.swift): raw `bos asc ...` adapter with BOS-managed env and artifacts
+- [`MetadataCommand.swift`](../Sources/BosCLI/MetadataCommand.swift): `metadata` adapter
+- [`ScreenshotsCommand.swift`](../Sources/BosCLI/ScreenshotsCommand.swift): `screenshots` adapter
+- [`DeviceCommand.swift`](../Sources/BosCLI/DeviceCommand.swift): `device` adapter
+- [`AppRegisterCommand.swift`](../Sources/BosCLI/AppRegisterCommand.swift): `app-register` adapter
+- [`ReleaseInitCommand.swift`](../Sources/BosCLI/ReleaseInitCommand.swift): `release-init` adapter
+- [`ReleaseCheckCommand.swift`](../Sources/BosCLI/ReleaseCheckCommand.swift): `release-check` adapter
+- [`ReleaseRunCommand.swift`](../Sources/BosCLI/ReleaseRunCommand.swift): `release-run` adapter
 
 ### 2. Engine Layer
 
@@ -91,33 +95,43 @@ Each command owns one main engine.
 
 | Command | Engine | Responsibility |
 |---|---|---|
-| `plan` | [`PlanEngine.swift`](/Users/axient/repository/bos/Sources/BosCore/PlanEngine.swift) | Parse markdown input and emit blueprint data |
-| `apply` | [`ApplyEngine.swift`](/Users/axient/repository/bos/Sources/BosCore/ApplyEngine.swift) | Generate scaffold and manage drift-safe updates |
-| `verify` | [`VerifyEngine.swift`](/Users/axient/repository/bos/Sources/BosCore/VerifyEngine.swift) | Run `tuist` + `xcodebuild` smoke validation |
-| `app-register` | [`AppRegistrationEngine.swift`](/Users/axient/repository/bos/Sources/BosCore/AppRegistrationEngine.swift) | Resolve onboarding metadata and register ASC resources |
-| `release-init` | [`ReleaseInitEngine.swift`](/Users/axient/repository/bos/Sources/BosCore/ReleaseInitEngine.swift) | Generate fastlane scaffold and lane files |
-| `release-check` | [`ReleaseCheckEngine.swift`](/Users/axient/repository/bos/Sources/BosCore/ReleaseCheckEngine.swift) | Validate release readiness against live external systems |
-| `release-run` | [`ReleaseRunEngine.swift`](/Users/axient/repository/bos/Sources/BosCore/ReleaseRunEngine.swift) | Build/upload/submit signed artifacts |
-| `doctor` | [`DoctorEngine.swift`](/Users/axient/repository/bos/Sources/BosCore/DoctorEngine.swift) | Evaluate local toolchain policy and signing prerequisites |
+| `plan` | [`PlanEngine.swift`](../Sources/BosCore/PlanEngine.swift) | Parse markdown input and emit blueprint data |
+| `apply` | [`ApplyEngine.swift`](../Sources/BosCore/ApplyEngine.swift) | Generate scaffold and manage drift-safe updates |
+| `verify` | [`VerifyEngine.swift`](../Sources/BosCore/VerifyEngine.swift) | Run `tuist` + `xcodebuild` smoke validation |
+| `metadata` | [`MetadataEngine.swift`](../Sources/BosCore/MetadataEngine.swift) | Round-trip App Store metadata under the BOS directory contract |
+| `screenshots` | [`ScreenshotsEngine.swift`](../Sources/BosCore/ScreenshotsEngine.swift) | Validate screenshot plans, materialize captures, compose exports, and verify output coverage |
+| `device` | [`DeviceEngine.swift`](../Sources/BosCore/DeviceEngine.swift) | Normalize simulator/physical-device workflows and emit stable artifacted results |
+| `app-register` | [`AppRegistrationEngine.swift`](../Sources/BosCore/AppRegistrationEngine.swift) | Resolve onboarding metadata and register ASC resources |
+| `release-init` | [`ReleaseInitEngine.swift`](../Sources/BosCore/ReleaseInitEngine.swift) | Generate fastlane scaffold and lane files |
+| `release-check` | [`ReleaseCheckEngine.swift`](../Sources/BosCore/ReleaseCheckEngine.swift) | Validate release readiness against live external systems |
+| `release-run` | [`ReleaseRunEngine.swift`](../Sources/BosCore/ReleaseRunEngine.swift) | Build/upload/submit signed artifacts |
+| `doctor` | [`DoctorEngine.swift`](../Sources/BosCore/DoctorEngine.swift) | Evaluate local toolchain policy and signing prerequisites |
 
 ### 3. Shared Policy / Schema Layer
 
 Shared files define the command contract and runtime policy.
 
-- [`Schemas.swift`](/Users/axient/repository/bos/Sources/BosCore/Schemas.swift): blueprint, profile, lock, and state schema
-- [`OnboardingConfiguration.swift`](/Users/axient/repository/bos/Sources/BosCore/OnboardingConfiguration.swift): profile-driven onboarding defaults
-- [`SigningEnvironmentPolicy.swift`](/Users/axient/repository/bos/Sources/BosCore/SigningEnvironmentPolicy.swift): ASC and signing env validation
-- [`ASCBackend.swift`](/Users/axient/repository/bos/Sources/BosCore/ASCBackend.swift): deterministic env-only `asc` execution bridge
-- [`ASCAppStoreAppResolver.swift`](/Users/axient/repository/bos/Sources/BosCore/ASCAppStoreAppResolver.swift): bundle-ID-based App Store app ID resolution and profile backfill support
-- [`ASCAppStoreReadinessChecker.swift`](/Users/axient/repository/bos/Sources/BosCore/ASCAppStoreReadinessChecker.swift): ASC-backed readiness/status checks for release flows
-- [`ProjectBuildSupport.swift`](/Users/axient/repository/bos/Sources/BosCore/ProjectBuildSupport.swift): scheme/workspace resolution and generated artifact cleanup
-- [`BosStateStore.swift`](/Users/axient/repository/bos/Sources/BosCore/BosStateStore.swift): summary writes into `.bos/state/bos.state.yaml`
-- [`CommandOutput.swift`](/Users/axient/repository/bos/Sources/BosCore/CommandOutput.swift): stable output payloads
+- [`BlueprintSchema.swift`](../Sources/BosCore/BlueprintSchema.swift): blueprint contract and validation
+- [`ProfileSchema.swift`](../Sources/BosCore/ProfileSchema.swift): profile SSOT and release metadata schema
+- [`ToolchainLockSchema.swift`](../Sources/BosCore/ToolchainLockSchema.swift): toolchain compatibility contract
+- [`BootstrapLockSchema.swift`](../Sources/BosCore/BootstrapLockSchema.swift): apply/state lock plus derived release-state schema
+- [`BosProjectManifestSchema.swift`](../Sources/BosCore/BosProjectManifestSchema.swift): root sentinel and path registry schema
+- [`MetadataSchema.swift`](../Sources/BosCore/MetadataSchema.swift): metadata directory contract plus future CLI report payloads
+- [`ScreenshotPlanSchema.swift`](../Sources/BosCore/ScreenshotPlanSchema.swift): screenshot plan schema, capture matrix contract, and export requirements
+- [`DeviceSchema.swift`](../Sources/BosCore/DeviceSchema.swift): device inventory contract and normalized readiness report models
+- [`OnboardingConfiguration.swift`](../Sources/BosCore/OnboardingConfiguration.swift): profile-driven onboarding defaults
+- [`SigningEnvironmentPolicy.swift`](../Sources/BosCore/SigningEnvironmentPolicy.swift): ASC and signing env validation
+- [`ASCBackend.swift`](../Sources/BosCore/ASCBackend.swift): deterministic env-only `asc` execution bridge
+- [`ASCAppStoreAppResolver.swift`](../Sources/BosCore/ASCAppStoreAppResolver.swift): bundle-ID-based App Store app ID resolution and profile backfill support
+- [`ASCAppStoreReadinessChecker.swift`](../Sources/BosCore/ASCAppStoreReadinessChecker.swift): ASC-backed readiness/status checks for release flows
+- [`ProjectBuildSupport.swift`](../Sources/BosCore/ProjectBuildSupport.swift): scheme/workspace resolution and generated artifact cleanup
+- [`BosStateStore.swift`](../Sources/BosCore/BosStateStore.swift): schema-backed updates for `.bos/state/bos.state.yaml` and resumable release checkpoints
+- [`CommandOutput.swift`](../Sources/BosCore/CommandOutput.swift): stable output payloads
 
 ### 4. Resource / Template Layer
 
-- [`Sources/BosCore/Resources/project_bootstrap/`](/Users/axient/repository/bos/Sources/BosCore/Resources/project_bootstrap): copied bootstrap guides and rules
-- [`Sources/BosCore/Resources/tma_plugin/`](/Users/axient/repository/bos/Sources/BosCore/Resources/tma_plugin): Tuist/TMA plugin resources
+- [`Sources/BosCore/Resources/project_bootstrap/`](../Sources/BosCore/Resources/project_bootstrap): copied bootstrap guides and rules
+- [`Sources/BosCore/Resources/tma_plugin/`](../Sources/BosCore/Resources/tma_plugin): Tuist/TMA plugin resources
 
 ## Data Model
 
@@ -126,8 +140,9 @@ Shared files define the command contract and runtime policy.
 - Markdown planning corpus from `PLAN/`
 - Optional PRD markers
 - Optional onboarding overrides from CLI
-- Profile SSOT from `.bos/config/profile.yaml`
-- Signing secrets from `.bos/config/signing.env`
+- Root sentinel from `bos.project.yaml`
+- Profile SSOT from `config/bos.profile.yaml`
+- Signing secrets from `.bos/secrets/signing.env`
 - Deterministic `asc` env bridge from BOS-managed inputs only
 
 ### Transformations

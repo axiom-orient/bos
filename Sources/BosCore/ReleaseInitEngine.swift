@@ -42,21 +42,39 @@ public struct ReleaseInitEngine: Sendable {
         )
         let envCheck = SigningEnvironmentPolicy.validate(environment: effectiveEnvironment)
         if !envCheck.missingKeys.isEmpty {
+            let summary = "missing required environment: \(envCheck.missingKeys.joined(separator: ", "))"
             BosStateStore.updateSummary(
                 projectRoot: root,
                 kind: .release,
                 status: "failed",
-                message: "missing required environment: \(envCheck.missingKeys.joined(separator: ", "))"
+                message: summary
+            )
+            BosStateStore.updateReleaseInitState(
+                projectRoot: root,
+                status: "failed",
+                summary: summary,
+                artifactDirectory: nil,
+                generatedFiles: [],
+                lanes: []
             )
             throw ReleaseInitEngineError.missingRequiredEnvironment(keys: envCheck.missingKeys)
         }
         if !envCheck.invalidIssues.isEmpty {
             let details = envCheck.invalidIssues.map { "\($0.key)(\($0.rule))" }
+            let summary = "invalid environment format: \(details.joined(separator: ", "))"
             BosStateStore.updateSummary(
                 projectRoot: root,
                 kind: .release,
                 status: "failed",
-                message: "invalid environment format: \(details.joined(separator: ", "))"
+                message: summary
+            )
+            BosStateStore.updateReleaseInitState(
+                projectRoot: root,
+                status: "failed",
+                summary: summary,
+                artifactDirectory: nil,
+                generatedFiles: [],
+                lanes: []
             )
             throw ReleaseInitEngineError.invalidEnvironmentFormat(details: details)
         }
@@ -92,20 +110,32 @@ public struct ReleaseInitEngine: Sendable {
         do {
             lanes = try parseLanes(from: fastfilePath)
         } catch {
+            let summary = "failed to parse lanes from \(fastfilePath.path(percentEncoded: false))"
             BosStateStore.updateSummary(
                 projectRoot: root,
                 kind: .release,
                 status: "failed",
-                message: "failed to parse lanes from \(fastfilePath.path(percentEncoded: false))"
+                message: summary
+            )
+            BosStateStore.updateReleaseInitState(
+                projectRoot: root,
+                status: "failed",
+                summary: summary,
+                artifactDirectory: nil,
+                generatedFiles: [
+                    fastfilePath.path(percentEncoded: false),
+                    appfilePath.path(percentEncoded: false),
+                    matchfilePath.path(percentEncoded: false),
+                    metadataNotesPath.path(percentEncoded: false)
+                ],
+                lanes: []
             )
             throw error
         }
 
-        let artifactsDir = try RuntimeArtifacts.makeDirectory(for: "release-init", projectRoot: root)
         let stamp = RuntimeSupport.timestamp()
-        let jsonPath = artifactsDir.appending(path: "release-init-\(stamp).json")
-        let logPath = artifactsDir.appending(path: "release-init-\(stamp).log")
-        let artifacts = [jsonPath.path(percentEncoded: false), logPath.path(percentEncoded: false)]
+        let bundle = try AdapterArtifacts.makeBundle(command: "release-init", projectRoot: root, stamp: stamp)
+        let artifacts = bundle.artifacts
 
         let generatedFiles = [
             fastfilePath.path(percentEncoded: false),
@@ -114,19 +144,27 @@ public struct ReleaseInitEngine: Sendable {
             metadataNotesPath.path(percentEncoded: false)
         ]
 
-        try writeArtifact(to: jsonPath, generatedFiles: generatedFiles, lanes: lanes, artifacts: artifacts)
-        try writeLog(
-            to: logPath,
+        try writeArtifact(
+            bundle: bundle,
             profileName: request.profile.name,
             projectRoot: root.path(percentEncoded: false),
             generatedFiles: generatedFiles,
-            lanes: lanes
+            lanes: lanes,
+            artifacts: artifacts
         )
         BosStateStore.updateSummary(
             projectRoot: root,
             kind: .release,
             status: "success",
             message: "release-init completed"
+        )
+        BosStateStore.updateReleaseInitState(
+            projectRoot: root,
+            status: "success",
+            summary: "release-init completed",
+            artifactDirectory: bundle.directory.path(percentEncoded: false),
+            generatedFiles: generatedFiles,
+            lanes: lanes
         )
 
         return ReleaseInitResult(generatedFiles: generatedFiles, lanes: lanes, artifacts: artifacts)
@@ -291,34 +329,14 @@ extension ReleaseInitEngine {
     }
 
     private func writeArtifact(
-        to path: URL,
+        bundle: AdapterArtifactBundle,
+        profileName: String,
+        projectRoot: String,
         generatedFiles: [String],
         lanes: [String],
         artifacts: [String]
     ) throws {
-        let payload = ArtifactPayload(
-            command: "release-init",
-            status: "success",
-            exitCode: 0,
-            summary: "Fastlane scaffold generated and lanes parsed",
-            lanes: lanes,
-            generatedFiles: generatedFiles,
-            artifacts: artifacts
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(payload)
-        try RuntimeSupport.writeFile(to: path, data: data)
-    }
-
-    private func writeLog(
-        to path: URL,
-        profileName: String,
-        projectRoot: String,
-        generatedFiles: [String],
-        lanes: [String]
-    ) throws {
-        let lines: [String] = [
+        let stdout: String = [
             "# bos release-init",
             "profile=\(profileName)",
             "projectRoot=\(projectRoot)",
@@ -327,7 +345,27 @@ extension ReleaseInitEngine {
             generatedFiles.map { "- \($0)" }.joined(separator: "\n"),
             "lanes=\(lanes.joined(separator: ","))",
             ""
-        ]
-        try RuntimeSupport.writeFile(to: path, content: lines.joined(separator: "\n"))
+        ].joined(separator: "\n")
+
+        _ = try AdapterArtifacts.write(
+            bundle: bundle,
+            envelope: AdapterRunEnvelope(
+                command: "release-init",
+                status: "success",
+                exitCode: 0,
+                summary: "Fastlane scaffold generated and lanes parsed",
+                payload: ArtifactPayload(
+                    command: "release-init",
+                    status: "success",
+                    exitCode: 0,
+                    summary: "Fastlane scaffold generated and lanes parsed",
+                    lanes: lanes,
+                    generatedFiles: generatedFiles,
+                    artifacts: artifacts
+                )
+            ),
+            stdout: stdout,
+            stderr: ""
+        )
     }
 }

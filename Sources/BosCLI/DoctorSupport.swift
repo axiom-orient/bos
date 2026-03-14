@@ -104,11 +104,24 @@ func detectXcodeSelectPath() -> String {
     return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
+func detectXCRunTool(_ tool: String) -> String {
+    guard let result = try? runProcess(command: ["xcrun", "--find", tool]),
+          result.status == 0 else { return "not-found" }
+    let resolved = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    return resolved.isEmpty ? "not-found" : "present"
+}
+
 func detectToolchain(lock: ToolchainLock) throws -> DetectedToolchain {
     let swift = detectVersion(command: ["swift", "--version"])
+    let xcode = detectVersion(command: ["xcodebuild", "-version"])
     let tuist = detectVersion(command: ["tuist", "version"])
+    let ruby = detectVersion(command: ["ruby", "--version"])
+    let bundler = detectVersion(command: ["bundle", "--version"])
+    let node = detectVersion(command: ["node", "--version"])
     let fastlane = detectVersion(command: ["fastlane", "--version"])
     let asc = detectVersion(command: ["asc", "--version"])
+    let devicectl = detectXCRunTool("devicectl")
+    let simctl = detectXCRunTool("simctl")
     let git = detectVersion(command: ["git", "--version"])
     let env = ProcessInfo.processInfo.environment
     let tma = try ToolchainLock.TMAPluginRef(
@@ -117,9 +130,15 @@ func detectToolchain(lock: ToolchainLock) throws -> DetectedToolchain {
     )
     return DetectedToolchain(
         swift: swift,
+        xcode: xcode,
         tuist: tuist,
+        ruby: ruby,
+        bundler: bundler,
+        node: node,
         fastlane: fastlane,
         asc: asc,
+        devicectl: devicectl,
+        simctl: simctl,
         tmaPluginRef: tma,
         xcodeSelectPath: detectXcodeSelectPath(),
         brewPath: resolveBrewExecutable() ?? "",

@@ -47,10 +47,6 @@ enum SigningEnvironmentFileError: Error {
     case invalidLine(line: Int, details: String)
 }
 
-func defaultSigningEnvironmentPath(projectRoot: URL) -> URL {
-    projectRoot.appending(path: ".bos/config/signing.env")
-}
-
 func hardenSigningEnvironmentFilePermissions(at path: URL) {
     try? FileManager.default.setAttributes(
         [.posixPermissions: NSNumber(value: Int(0o600))],
@@ -59,7 +55,8 @@ func hardenSigningEnvironmentFilePermissions(at path: URL) {
 }
 
 func signingEnvironmentLoadErrorMessage(_ error: Error, projectRoot: URL) -> String {
-    let path = defaultSigningEnvironmentPath(projectRoot: projectRoot).path(percentEncoded: false)
+    let path = (existingSigningEnvironmentPath(projectRoot: projectRoot) ?? defaultSigningEnvironmentPath(projectRoot: projectRoot))
+        .path(percentEncoded: false)
     if let signingError = error as? SigningEnvironmentFileError {
         switch signingError {
         case .unreadable(let sourcePath, let details):
@@ -79,7 +76,7 @@ func signingEnvironmentTemplate() -> String {
     # ASC_KEY_ID: App Store Connect API key ID
     # ASC_KEY_P8_BASE64: base64 of AuthKey_<KEY_ID>.p8
     # MATCH_PASSWORD: password used by fastlane match
-    # MATCH_GIT_URL belongs in .bos/config/profile.yaml release.matchGitURL.
+    # MATCH_GIT_URL belongs in config/bos.profile.yaml release.matchGitURL.
     ASC_ISSUER_ID=
     ASC_KEY_ID=
     ASC_KEY_P8_BASE64=
@@ -88,13 +85,11 @@ func signingEnvironmentTemplate() -> String {
 }
 
 func ensureSigningEnvironmentTemplate(projectRoot: URL) throws -> (path: URL, created: Bool) {
-    let path = defaultSigningEnvironmentPath(projectRoot: projectRoot)
-    let fm = FileManager.default
-    let filePath = path.path(percentEncoded: false)
-    if fm.fileExists(atPath: filePath) {
-        hardenSigningEnvironmentFilePermissions(at: path)
-        return (path, false)
+    if let existing = existingSigningEnvironmentPath(projectRoot: projectRoot) {
+        hardenSigningEnvironmentFilePermissions(at: existing)
+        return (existing, false)
     }
+    let path = defaultSigningEnvironmentPath(projectRoot: projectRoot)
     try writeTextFile(signingEnvironmentTemplate(), to: path)
     hardenSigningEnvironmentFilePermissions(at: path)
     return (path, true)

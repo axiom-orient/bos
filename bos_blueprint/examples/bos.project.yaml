@@ -1,0 +1,10 @@
+schemaVersion: 1
+product:
+  mode: single-app
+paths:
+  profile: config/bos.profile.yaml
+  blueprintLock: config/blueprint.lock.yaml
+  releasePolicy: config/release.policy.yaml
+  screenshotsPlan: config/screenshots.plan.yaml
+  signingEnv: .bos/secrets/signing.env
+  state: .bos/state/bos.state.yaml

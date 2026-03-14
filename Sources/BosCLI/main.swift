@@ -41,6 +41,12 @@ func run() {
         runVerify(args: rest, format: outputFormat)
     case .asc:
         runASC(args: rest)
+    case .metadata:
+        runMetadata(args: rest, format: outputFormat)
+    case .screenshots:
+        runScreenshots(args: rest, format: outputFormat)
+    case .device:
+        runDevice(args: rest, format: outputFormat)
     case .appRegister:
         runAppRegister(args: rest, format: outputFormat)
     case .releaseInit:

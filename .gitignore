@@ -16,7 +16,9 @@ temp/
 .bos/artifacts/
 .bos/plan/
 .bos/state/
+.bos/cache/
+.bos/secrets/
 
-# Local-only profile (auto-generated). Keep toolchain policy tracked.
+# Legacy compatibility paths (not canonical v2 inputs).
 .bos/config/profile.yaml
 .bos/config/signing.env

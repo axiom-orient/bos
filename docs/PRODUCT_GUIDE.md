@@ -11,6 +11,9 @@ Its public surface is intentionally narrow:
 - `apply`
 - `verify`
 - `asc`
+- `metadata`
+- `screenshots`
+- `device`
 - `app-register`
 - `release-init`
 - `release-check`
@@ -18,7 +21,7 @@ Its public surface is intentionally narrow:
 
 The product contract is simple:
 
-- planning input becomes `.bos/plan/blueprint.yaml`
+- planning input becomes `config/blueprint.lock.yaml`
 - blueprint plus profile become a generated project
 - release commands read profile plus signing environment
 
@@ -27,12 +30,12 @@ The product contract is simple:
 ### Required Inputs
 
 - planning documents under `PLAN/`, or one PRD passed with `--prd`
-- onboarding SSOT at `.bos/config/profile.yaml`
-- signing secrets at `.bos/config/signing.env`
+- onboarding SSOT at `config/bos.profile.yaml`
+- signing secrets at `.bos/secrets/signing.env`
 
 ### Generated Inputs
 
-- `.bos/plan/blueprint.yaml` is the only default blueprint path
+- `config/blueprint.lock.yaml` is the canonical default blueprint path
 
 How it appears:
 
@@ -46,7 +49,7 @@ How it appears:
 
 ### Canonical SSOT Fields
 
-`.bos/config/profile.yaml`
+`config/bos.profile.yaml`
 
 - `identity.companyName`
 - `identity.appName`
@@ -57,7 +60,7 @@ How it appears:
 - `release.appStoreAppId`
 - `release.matchGitURL`
 
-`.bos/config/signing.env`
+`.bos/secrets/signing.env`
 
 - `ASC_ISSUER_ID`
 - `ASC_KEY_ID`
@@ -69,10 +72,13 @@ How it appears:
 | Command | Purpose | Required input | Main writes |
 |---|---|---|---|
 | `doctor` | validate local toolchain and signing prerequisites | optional scope-specific profile/env | `.bos/artifacts/doctor/`, `config/toolchain.lock.yaml` |
-| `plan` | generate `.bos/plan/blueprint.yaml` | `PLAN/` or `--prd` | `.bos/plan/blueprint.yaml` |
+| `plan` | generate `config/blueprint.lock.yaml` | `PLAN/` or `--prd` | `config/blueprint.lock.yaml` |
 | `apply` | generate or reconcile Tuist/TMA scaffold | blueprint, profile | generated project files, `.bos/state/bos.state.yaml`, `.bos/artifacts/apply/` |
 | `verify` | run smoke validation for generated projects | generated project, full Xcode developer dir | `.bos/state/bos.state.yaml`, `.bos/artifacts/verify/` |
 | `asc` | forward raw low-level App Store Connect commands through BOS-managed context | current project root, profile SSOT, signing env, forwarded `asc` args | `.bos/artifacts/asc/` |
+| `metadata` | round-trip localized App Store metadata under the BOS directory contract | profile for default locale, signing env for pull/diff/push | `metadata/`, `.bos/artifacts/metadata-*/` |
+| `screenshots` | validate screenshot plans, generate raw captures, compose exports, and verify coverage | `config/screenshots.plan.yaml` | `screenshots/raw/`, `screenshots/export/`, `.bos/artifacts/screenshots-*/` |
+| `device` | normalize simulator and physical-device workflows with stable JSON output | optional target device or app/bundle input per subcommand | `.bos/artifacts/device-*/` |
 | `app-register` | create or confirm Bundle ID and ASC app record | profile identity fields, ASC env, optional blueprint | `.bos/artifacts/app-register/`, synced profile output |
 | `release-init` | create fastlane scaffold | blueprint, profile, signing env | `fastlane/Fastfile`, `fastlane/Appfile`, `fastlane/Matchfile`, `.bos/artifacts/release-init/` |
 | `release-check` | validate live release readiness | profile, signing env, release scaffold for cert modes | `.bos/artifacts/release-check/`, `.bos/state/bos.state.yaml` |
@@ -84,6 +90,9 @@ How it appears:
 - `app-register` is idempotent. Existing resources return `existing`, not failure.
 - `app-register` keeps native bundle/app creation for now, then resolves and persists `release.appStoreAppId` through the `asc` backend.
 - `asc` preserves raw `asc` stdout/stderr and exit codes as much as possible, but writes BOS-managed redacted artifacts.
+- `metadata` preserves unknown files in locale directories and validates required text completeness before push.
+- `screenshots` treats `config/screenshots.plan.yaml` as the SSOT for locale/device/export coverage and writes manifest-backed artifact bundles per subcommand.
+- `device` keeps simulator and physical-device responsibilities on a separate command surface from release or App Store onboarding flows.
 - `release-init` is local scaffold generation only.
 - `release-check` is the live release-readiness gate. Signing remains local/fastlane-backed; App Store readiness is ASC-backed.
 - `release-run` owns the signed `build | beta | release | submit` stages.
@@ -138,7 +147,7 @@ bos release-run --stage beta
 
 ## Related Docs
 
-- [README](/Users/axient/repository/bos/README.md)
-- [Operations Guide](/Users/axient/repository/bos/docs/OPERATIONS_GUIDE.md)
-- [Architecture](/Users/axient/repository/bos/docs/ARCHITECTURE.md)
-- [Testing Guide](/Users/axient/repository/bos/docs/TESTING_GUIDE.md)
+- [README](../README.md)
+- [Operations Guide](../docs/OPERATIONS_GUIDE.md)
+- [Architecture](../docs/ARCHITECTURE.md)
+- [Testing Guide](../docs/TESTING_GUIDE.md)

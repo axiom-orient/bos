@@ -69,7 +69,11 @@ struct ReleaseCheckEngineIntegrationTests {
 
         let state = try String(contentsOf: root.appending(path: ".bos/state/bos.state.yaml"), encoding: .utf8)
         #expect(state.contains("releaseCheckSummary:"))
-        #expect(state.contains("message: \"Release check passed (readonly-certs)\""))
+        #expect(state.contains("message: Release check passed (readonly-certs)"))
+        #expect(state.contains("derivedState:"))
+        #expect(state.contains("releaseCheck:"))
+        #expect(state.contains("mode: readonly-certs"))
+        #expect(state.contains("completedSteps:"))
     }
 
     @Test func syncCertsRunsWritableLane() throws {
@@ -214,7 +218,7 @@ struct ReleaseCheckEngineIntegrationTests {
             #expect(classification == .fastlane)
             #expect(step == .fastlaneScaffold)
             #expect(summary.contains("run `bos release-init` first"))
-            #expect(artifacts.count == 2)
+            #expect(artifacts.count == 4)
         } catch {
             Issue.record("unexpected error: \(error)")
         }
@@ -284,7 +288,9 @@ struct ReleaseCheckEngineIntegrationTests {
             )
             Issue.record("expected ReleaseCheckEngineError.failed")
         } catch ReleaseCheckEngineError.failed(_, _, _, _, let artifacts) {
-            let logPath = try #require(artifacts.first(where: { $0.hasSuffix(".log") }))
+            #expect(artifacts.contains(where: { $0.hasSuffix("/run.json") }))
+            #expect(artifacts.contains(where: { $0.hasSuffix("/manifest.json") }))
+            let logPath = try #require(artifacts.first(where: { $0.hasSuffix("/stdout.log") }))
             let log = try String(contentsOfFile: logPath, encoding: .utf8)
             #expect(!log.contains("match-secret"))
             #expect(!log.contains("c3VwZXItc2VjcmV0"))

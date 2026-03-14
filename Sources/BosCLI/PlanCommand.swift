@@ -56,9 +56,9 @@ func planErrorMessage(_ error: PlanEngineError) -> String {
     case .missingEntities:
         return "entities not found. add `Entity: User` lines or numbered domain headings such as `11.1 Item`."
     case .missingAppIdentifier:
-        return "missing App Identifier. add it to `.bos/config/profile.yaml` identity.appIdentifier, documents, or pass `--app-identifier com.example.app`."
+        return "missing App Identifier. add it to `config/bos.profile.yaml` identity.appIdentifier, documents, or pass `--app-identifier com.example.app`."
     case .missingAppleTeamID:
-        return "missing Apple Team ID. add it to `.bos/config/profile.yaml` identity.appleTeamId, documents, or pass `--apple-team-id ABCD123456`."
+        return "missing Apple Team ID. add it to `config/bos.profile.yaml` identity.appleTeamId, documents, or pass `--apple-team-id ABCD123456`."
     case .missingBundleIdPrefix:
         return "failed to derive bundle prefix. check `App Identifier` format (example: com.example.app)."
     }
@@ -85,8 +85,6 @@ func runPlan(args: [String], format: OutputFormat) {
     )
     assertOptionContract(parsed: parsed, command: .plan, format: format)
 
-    let outRaw = parsed.values["--out"] ?? ".bos/plan/blueprint.yaml"
-
     let prdRaw = parsed.values["--prd"]
     let planDirRaw = parsed.values["--plan-dir"]
     if (prdRaw == nil) == (planDirRaw == nil) {
@@ -104,6 +102,7 @@ func runPlan(args: [String], format: OutputFormat) {
         command: .plan,
         format: format
     )
+    let outRaw = parsed.values["--out"] ?? defaultBlueprintPath(projectRoot: projectRoot).path(percentEncoded: false)
     let outPath = resolvePath(outRaw, base: projectRoot)
 
     do {

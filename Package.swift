@@ -17,6 +17,9 @@ let package = Package(
     targets: [
         .target(
             name: "BosCore",
+            dependencies: [
+                .product(name: "Yams", package: "Yams")
+            ],
             resources: [
                 .copy("Resources/tma_plugin"),
                 .copy("Resources/project_bootstrap")

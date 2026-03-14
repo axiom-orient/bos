@@ -87,7 +87,7 @@ func runAppRegister(args: [String], format: OutputFormat) {
         let summary: String
         switch error {
         case .missingRequiredFields(let fields):
-            summary = "missing required fields: \(fields.joined(separator: ", ")). add them to `.bos/config/profile.yaml` or pass flags."
+            summary = "missing required fields: \(fields.joined(separator: ", ")). add them to `config/bos.profile.yaml` or pass flags."
         case .invalidValue(let field, let reason):
             summary = "\(field): \(reason)"
         case .invalidEnvironment(let missingKeys, let invalidIssues):

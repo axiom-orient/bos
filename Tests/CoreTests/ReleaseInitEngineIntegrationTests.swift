@@ -21,7 +21,7 @@ struct ReleaseInitEngineIntegrationTests {
 
         #expect(result.lanes == ["auth_ping", "certs_readonly", "certs", "build", "beta", "release", "submit", "release_metadata"])
         #expect(result.generatedFiles.count == 4)
-        #expect(result.artifacts.count == 2)
+        #expect(result.artifacts.count == 4)
 
         let fastfile = root.appending(path: "fastlane/Fastfile")
         let appfile = root.appending(path: "fastlane/Appfile")
@@ -63,10 +63,12 @@ struct ReleaseInitEngineIntegrationTests {
         #expect(fastfileContent.contains("deliver(api_key: api_key, ipa: ENV[\"IPA_PATH\"], submit_for_review: true)"))
         #expect(fastfileContent.contains("lane :release_metadata do"))
 
-        let logPath = try #require(result.artifacts.first(where: { $0.hasSuffix(".log") }))
+        let logPath = try #require(result.artifacts.first(where: { $0.hasSuffix("/stdout.log") }))
         let log = try String(contentsOfFile: logPath, encoding: .utf8)
         #expect(log.contains("requiredEnvChecked=ASC_ISSUER_ID,ASC_KEY_ID,ASC_KEY_P8_BASE64,MATCH_GIT_URL,MATCH_PASSWORD"))
         #expect(!log.contains("super-secret"))
+        #expect(result.artifacts.contains(where: { $0.hasSuffix("/run.json") }))
+        #expect(result.artifacts.contains(where: { $0.hasSuffix("/manifest.json") }))
     }
 
     @Test func releaseInitFailsWhenRequiredEnvironmentIsMissing() throws {
@@ -141,8 +143,12 @@ struct ReleaseInitEngineIntegrationTests {
         let statePath = root.appending(path: ".bos/state/bos.state.yaml")
         let state = try String(contentsOf: statePath, encoding: .utf8)
         #expect(state.contains("releaseSummary:"))
-        #expect(state.contains("status: \"success\""))
-        #expect(state.contains("message: \"release-init completed\""))
+        #expect(state.contains("status: success"))
+        #expect(state.contains("message: release-init completed"))
+        #expect(state.contains("derivedState:"))
+        #expect(state.contains("releaseInit:"))
+        #expect(state.contains("generatedFiles:"))
+        #expect(state.contains("artifactDirectory:"))
     }
 
     @Test func releaseInitUpdatesBootstrapStateSummaryOnMissingEnvironmentFailure() throws {
@@ -172,8 +178,10 @@ struct ReleaseInitEngineIntegrationTests {
         let statePath = root.appending(path: ".bos/state/bos.state.yaml")
         let state = try String(contentsOf: statePath, encoding: .utf8)
         #expect(state.contains("releaseSummary:"))
-        #expect(state.contains("status: \"failed\""))
+        #expect(state.contains("status: failed"))
         #expect(state.contains("missing required environment: MATCH_PASSWORD"))
+        #expect(state.contains("releaseInit:"))
+        #expect(state.contains("summary: 'missing required environment: MATCH_PASSWORD'"))
     }
 
     @Test func releaseInitUsesProfileMatchGitURLAndPrimaryLanguage() throws {

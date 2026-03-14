@@ -260,11 +260,9 @@ public struct AppRegistrationEngine: Sendable {
             )
         }
 
-        let artifactsDir = try RuntimeArtifacts.makeDirectory(for: "app-register", projectRoot: root)
         let stamp = RuntimeSupport.timestamp()
-        let jsonPath = artifactsDir.appending(path: "app-register-\(stamp).json")
-        let logPath = artifactsDir.appending(path: "app-register-\(stamp).log")
-        let artifacts = [jsonPath.path(percentEncoded: false), logPath.path(percentEncoded: false)]
+        let bundle = try AdapterArtifacts.makeBundle(command: "app-register", projectRoot: root, stamp: stamp)
+        let artifacts = bundle.artifacts
 
         do {
             let providerResult = try provider.register(metadata: metadata, environment: request.environment)
@@ -288,8 +286,7 @@ public struct AppRegistrationEngine: Sendable {
             let syncedProfile = appResolution.updatedProfile
             let summary = "App registration completed (bundleId=\(providerResult.bundleIdStatus.rawValue), app=\(providerResult.appStatus.rawValue))"
             try writeArtifacts(
-                jsonPath: jsonPath,
-                logPath: logPath,
+                bundle: bundle,
                 summary: summary,
                 metadata: metadata,
                 appStoreAppId: appResolution.appStoreAppId,
@@ -307,8 +304,7 @@ public struct AppRegistrationEngine: Sendable {
             )
         } catch let error as AppRegistrationEngineError {
             try writeFailureArtifacts(
-                jsonPath: jsonPath,
-                logPath: logPath,
+                bundle: bundle,
                 error: error,
                 metadata: metadata,
                 artifacts: artifacts
@@ -320,8 +316,7 @@ public struct AppRegistrationEngine: Sendable {
                 artifacts: artifacts
             )
             try writeFailureArtifacts(
-                jsonPath: jsonPath,
-                logPath: logPath,
+                bundle: bundle,
                 error: wrapped,
                 metadata: metadata,
                 artifacts: artifacts
@@ -446,33 +441,14 @@ private extension AppRegistrationEngine {
     }
 
     func writeArtifacts(
-        jsonPath: URL,
-        logPath: URL,
+        bundle: AdapterArtifactBundle,
         summary: String,
         metadata: AppRegistrationResolvedMetadata,
         appStoreAppId: String,
         providerResult: AppRegistrationProviderResult,
         artifacts: [String]
     ) throws {
-        let payload = ArtifactPayload(
-            command: "app-register",
-            status: "success",
-            exitCode: 0,
-            summary: summary,
-            appIdentifier: metadata.appIdentifier,
-            appName: metadata.appName,
-            sku: metadata.sku,
-            primaryLanguage: metadata.primaryLanguage,
-            appStoreAppId: appStoreAppId,
-            bundleIdStatus: providerResult.bundleIdStatus.rawValue,
-            appStatus: providerResult.appStatus.rawValue,
-            artifacts: artifacts
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try RuntimeSupport.writeFile(to: jsonPath, data: try encoder.encode(payload))
-
-        let lines: [String] = [
+        let stdout: String = [
             "# bos app-register",
             "appIdentifier=\(metadata.appIdentifier)",
             "appName=\(metadata.appName)",
@@ -486,13 +462,37 @@ private extension AppRegistrationEngine {
             "appStatus=\(providerResult.appStatus.rawValue)",
             "summary=\(summary)",
             ""
-        ]
-        try RuntimeSupport.writeFile(to: logPath, content: lines.joined(separator: "\n"))
+        ].joined(separator: "\n")
+
+        _ = try AdapterArtifacts.write(
+            bundle: bundle,
+            envelope: AdapterRunEnvelope(
+                command: "app-register",
+                status: "success",
+                exitCode: 0,
+                summary: summary,
+                payload: ArtifactPayload(
+                    command: "app-register",
+                    status: "success",
+                    exitCode: 0,
+                    summary: summary,
+                    appIdentifier: metadata.appIdentifier,
+                    appName: metadata.appName,
+                    sku: metadata.sku,
+                    primaryLanguage: metadata.primaryLanguage,
+                    appStoreAppId: appStoreAppId,
+                    bundleIdStatus: providerResult.bundleIdStatus.rawValue,
+                    appStatus: providerResult.appStatus.rawValue,
+                    artifacts: artifacts
+                )
+            ),
+            stdout: stdout,
+            stderr: ""
+        )
     }
 
     func writeFailureArtifacts(
-        jsonPath: URL,
-        logPath: URL,
+        bundle: AdapterArtifactBundle,
         error: AppRegistrationEngineError,
         metadata: AppRegistrationResolvedMetadata?,
         artifacts: [String]
@@ -513,25 +513,7 @@ private extension AppRegistrationEngine {
             summary = providerSummary
         }
 
-        let payload = ArtifactPayload(
-            command: "app-register",
-            status: "failed",
-            exitCode: 8,
-            summary: summary,
-            appIdentifier: metadata?.appIdentifier ?? "",
-            appName: metadata?.appName ?? "",
-            sku: metadata?.sku ?? "",
-            primaryLanguage: metadata?.primaryLanguage ?? "",
-            appStoreAppId: nil,
-            bundleIdStatus: nil,
-            appStatus: nil,
-            artifacts: artifacts
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try RuntimeSupport.writeFile(to: jsonPath, data: try encoder.encode(payload))
-
-        let lines: [String] = [
+        let stdout: String = [
             "# bos app-register",
             "status=failed",
             "summary=\(summary)",
@@ -542,8 +524,33 @@ private extension AppRegistrationEngine {
             metadata.map { "sku=\($0.sku)" } ?? "sku=-",
             "appStoreAppId=-",
             ""
-        ]
-        try RuntimeSupport.writeFile(to: logPath, content: lines.joined(separator: "\n"))
+        ].joined(separator: "\n")
+
+        _ = try AdapterArtifacts.write(
+            bundle: bundle,
+            envelope: AdapterRunEnvelope(
+                command: "app-register",
+                status: "failed",
+                exitCode: 8,
+                summary: summary,
+                payload: ArtifactPayload(
+                    command: "app-register",
+                    status: "failed",
+                    exitCode: 8,
+                    summary: summary,
+                    appIdentifier: metadata?.appIdentifier ?? "",
+                    appName: metadata?.appName ?? "",
+                    sku: metadata?.sku ?? "",
+                    primaryLanguage: metadata?.primaryLanguage ?? "",
+                    appStoreAppId: nil,
+                    bundleIdStatus: nil,
+                    appStatus: nil,
+                    artifacts: artifacts
+                )
+            ),
+            stdout: stdout,
+            stderr: ""
+        )
     }
 }
 

@@ -101,7 +101,7 @@ private func writeASCArtifacts(
     environment: [String: String],
     resolvedAppStoreAppId: String?
 ) throws -> [String] {
-    struct ArtifactPayload: Encodable {
+    struct ArtifactPayload: Codable {
         let command: String
         let forwardedArguments: [String]
         let exitCode: Int32
@@ -109,40 +109,38 @@ private func writeASCArtifacts(
         let artifacts: [String]
     }
 
-    let artifactsDir = projectRoot.appending(path: ".bos/artifacts/asc")
     let stamp = ascTimestamp()
-    let jsonPath = artifactsDir.appending(path: "asc-\(stamp).json")
-    let logPath = artifactsDir.appending(path: "asc-\(stamp).log")
-    let artifacts = [
-        jsonPath.path(percentEncoded: false),
-        logPath.path(percentEncoded: false)
-    ]
-
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    let payload = ArtifactPayload(
-        command: "asc",
-        forwardedArguments: arguments,
-        exitCode: result.exitCode,
-        resolvedAppStoreAppId: resolvedAppStoreAppId,
-        artifacts: artifacts
-    )
-    try writeTextFile(String(decoding: try encoder.encode(payload), as: UTF8.self), to: jsonPath)
+    let bundle = try AdapterArtifacts.makeBundle(command: "asc", projectRoot: projectRoot, stamp: stamp)
+    let artifacts = bundle.artifacts
 
     let sanitizedStdout = ASCBackend.sanitizeSecrets(result.stdout, environment: environment)
     let sanitizedStderr = ASCBackend.sanitizeSecrets(result.stderr, environment: environment)
-    let lines = [
+    let stdout = [
         "# bos asc",
         "args=\(arguments.joined(separator: " "))",
         "exitCode=\(result.exitCode)",
         "resolvedAppStoreAppId=\(resolvedAppStoreAppId ?? "-")",
-        "stdout:",
-        sanitizedStdout,
-        "stderr:",
-        sanitizedStderr,
         ""
-    ]
-    try writeTextFile(lines.joined(separator: "\n"), to: logPath)
+    ].joined(separator: "\n")
+
+    _ = try AdapterArtifacts.write(
+        bundle: bundle,
+        envelope: AdapterRunEnvelope(
+            command: "asc",
+            status: result.exitCode == 0 ? "success" : "failed",
+            exitCode: Int(result.exitCode),
+            summary: "asc bridge forwarded \(arguments.joined(separator: " "))",
+            payload: ArtifactPayload(
+                command: "asc",
+                forwardedArguments: arguments,
+                exitCode: result.exitCode,
+                resolvedAppStoreAppId: resolvedAppStoreAppId,
+                artifacts: artifacts
+            )
+        ),
+        stdout: [stdout, sanitizedStdout].filter { !$0.isEmpty }.joined(separator: "\n"),
+        stderr: sanitizedStderr
+    )
 
     return artifacts
 }

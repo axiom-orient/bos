@@ -2,9 +2,15 @@ import Foundation
 
 public struct DetectedToolchain: Sendable {
     public let swift: String
+    public let xcode: String
     public let tuist: String
+    public let ruby: String
+    public let bundler: String
+    public let node: String
     public let fastlane: String
     public let asc: String
+    public let devicectl: String
+    public let simctl: String
     public let tmaPluginRef: ToolchainLock.TMAPluginRef
     public let xcodeSelectPath: String
     public let brewPath: String
@@ -12,18 +18,30 @@ public struct DetectedToolchain: Sendable {
 
     public init(
         swift: String,
+        xcode: String = "not-found",
         tuist: String,
+        ruby: String = "not-found",
+        bundler: String = "not-found",
+        node: String = "not-found",
         fastlane: String,
         asc: String = "not-found",
+        devicectl: String = "not-found",
+        simctl: String = "not-found",
         tmaPluginRef: ToolchainLock.TMAPluginRef,
         xcodeSelectPath: String = "",
         brewPath: String = "",
         gitVersion: String = "not-found"
     ) {
         self.swift = swift
+        self.xcode = xcode
         self.tuist = tuist
+        self.ruby = ruby
+        self.bundler = bundler
+        self.node = node
         self.fastlane = fastlane
         self.asc = asc
+        self.devicectl = devicectl
+        self.simctl = simctl
         self.tmaPluginRef = tmaPluginRef
         self.xcodeSelectPath = xcodeSelectPath
         self.brewPath = brewPath
@@ -130,12 +148,9 @@ public struct DoctorEngine: Sendable {
         )
         let blocking = findings.filter { $0.severity == .required && $0.status != .installed }
 
-        let artifactsDir = try RuntimeArtifacts.makeDirectory(for: "doctor", projectRoot: request.projectRoot)
-
         let stamp = RuntimeSupport.timestamp()
-        let jsonPath = artifactsDir.appending(path: "doctor-\(stamp).json")
-        let logPath = artifactsDir.appending(path: "doctor-\(stamp).log")
-        let artifacts = [jsonPath.path(percentEncoded: false), logPath.path(percentEncoded: false)]
+        let bundle = try AdapterArtifacts.makeBundle(command: "doctor", projectRoot: request.projectRoot, stamp: stamp)
+        let artifacts = bundle.artifacts
 
         let status = blocking.isEmpty ? "success" : "failed"
         let exitCode = blocking.isEmpty ? 0 : 6
@@ -148,18 +163,12 @@ public struct DoctorEngine: Sendable {
         }
 
         try writeArtifact(
-            to: jsonPath,
+            bundle: bundle,
             status: status,
             exitCode: exitCode,
             summary: summary,
             findings: findings,
             artifacts: artifacts,
-            checkCommands: request.checkCommands
-        )
-        try writeLog(
-            to: logPath,
-            findings: findings,
-            summary: summary,
             checkCommands: request.checkCommands
         )
 
@@ -230,12 +239,44 @@ extension DoctorEngine {
             requirement: lock.tools.swift,
             scope: scope
         ))
+        if let xcodeRequirement = lock.tools.xcode {
+            findings.append(evaluate(
+                tool: "xcode",
+                actual: detected.xcode,
+                requirement: xcodeRequirement,
+                scope: scope
+            ))
+        }
         findings.append(evaluate(
             tool: "tuist",
             actual: detected.tuist,
             requirement: lock.tools.tuist,
             scope: scope
         ))
+        if let rubyRequirement = lock.tools.ruby {
+            findings.append(evaluate(
+                tool: "ruby",
+                actual: detected.ruby,
+                requirement: rubyRequirement,
+                scope: scope
+            ))
+        }
+        if let bundlerRequirement = lock.tools.bundler {
+            findings.append(evaluate(
+                tool: "bundler",
+                actual: detected.bundler,
+                requirement: bundlerRequirement,
+                scope: scope
+            ))
+        }
+        if let nodeRequirement = lock.tools.node {
+            findings.append(evaluate(
+                tool: "node",
+                actual: detected.node,
+                requirement: nodeRequirement,
+                scope: scope
+            ))
+        }
         findings.append(evaluate(
             tool: "fastlane",
             actual: detected.fastlane,
@@ -248,6 +289,22 @@ extension DoctorEngine {
             requirement: lock.tools.asc,
             scope: scope
         ))
+        if let devicectlRequirement = lock.tools.devicectl {
+            findings.append(evaluate(
+                tool: "devicectl",
+                actual: detected.devicectl,
+                requirement: devicectlRequirement,
+                scope: scope
+            ))
+        }
+        if let simctlRequirement = lock.tools.simctl {
+            findings.append(evaluate(
+                tool: "simctl",
+                actual: detected.simctl,
+                requirement: simctlRequirement,
+                scope: scope
+            ))
+        }
 
         let tmaExpected = "exact:\(lock.tmaPluginRef.type):\(lock.tmaPluginRef.value)"
         let tmaActual = "\(detected.tmaPluginRef.type):\(detected.tmaPluginRef.value)"
@@ -478,6 +535,8 @@ extension DoctorEngine {
         switch rule.kind {
         case "exact":
             return actualVersion.trimmingCharacters(in: .whitespacesAndNewlines) == rule.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        case "present":
+            return actualVersion != "not-found"
         case "semver-range":
             guard let actual = SemVer(from: actualVersion) else { return false }
             let normalized = rule.value
@@ -540,33 +599,12 @@ extension DoctorEngine {
     }
 
     private func writeArtifact(
-        to path: URL,
+        bundle: AdapterArtifactBundle,
         status: String,
         exitCode: Int,
         summary: String,
         findings: [DoctorFinding],
         artifacts: [String],
-        checkCommands: [String]
-    ) throws {
-        let payload = ArtifactPayload(
-            command: "doctor",
-            status: status,
-            exitCode: exitCode,
-            summary: summary,
-            checkCommands: checkCommands,
-            findings: findings,
-            artifacts: artifacts
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(payload)
-        try RuntimeSupport.writeFile(to: path, data: data)
-    }
-
-    private func writeLog(
-        to path: URL,
-        findings: [DoctorFinding],
-        summary: String,
         checkCommands: [String]
     ) throws {
         var lines: [String] = [
@@ -586,7 +624,26 @@ extension DoctorEngine {
         }
         lines.append("")
 
-        try RuntimeSupport.writeFile(to: path, content: lines.joined(separator: "\n"))
+        _ = try AdapterArtifacts.write(
+            bundle: bundle,
+            envelope: AdapterRunEnvelope(
+                command: "doctor",
+                status: status,
+                exitCode: exitCode,
+                summary: summary,
+                payload: ArtifactPayload(
+                    command: "doctor",
+                    status: status,
+                    exitCode: exitCode,
+                    summary: summary,
+                    checkCommands: checkCommands,
+                    findings: findings,
+                    artifacts: artifacts
+                )
+            ),
+            stdout: lines.joined(separator: "\n"),
+            stderr: ""
+        )
     }
 
     private func normalizedScope(checkCommands: [String]) -> String {

@@ -1,0 +1,43 @@
+schemaVersion: 1
+defaultLocale: en-US
+locales:
+  - locale: en-US
+    displayName: English (US)
+  - locale: ko-KR
+    displayName: Korean
+devices:
+  - id: iphone-69
+    name: iPhone 16 Pro Max
+    family: iphone
+    platform: simulator
+    orientation: portrait
+    pixelSize:
+      width: 1320
+      height: 2868
+  - id: ipad-13
+    name: iPad Pro 13-inch
+    family: ipad
+    platform: simulator
+    orientation: portrait
+    pixelSize:
+      width: 2064
+      height: 2752
+shots:
+  - id: today-home
+    screenID: SCR_TODAY_HOME
+    locales: [en-US, ko-KR]
+    devices: [iphone-69, ipad-13]
+    launchArguments:
+      - BOS_SCREENSHOT=SCR_TODAY_HOME
+    outputName: today-home
+  - id: task-detail
+    screenID: SCR_TASK_DETAIL
+    locales: [en-US, ko-KR]
+    devices: [iphone-69]
+    launchArguments:
+      - BOS_SCREENSHOT=SCR_TASK_DETAIL
+    outputName: task-detail
+export:
+  rootDirectory: screenshots/export
+  format: png
+  includeFrame: false

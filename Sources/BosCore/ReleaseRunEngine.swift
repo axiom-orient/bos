@@ -132,18 +132,20 @@ public struct ReleaseRunEngine: Sendable {
             projectRoot: root,
             profileName: request.profile.name
         )
-        let artifactsDir = try RuntimeArtifacts.makeDirectory(for: "release-run", projectRoot: root)
         let stamp = RuntimeSupport.timestamp()
-        let jsonPath = artifactsDir.appending(path: "release-run-\(stamp).json")
-        let logPath = artifactsDir.appending(path: "release-run-\(stamp).log")
-        let buildOutputDir = artifactsDir.appending(path: "ipa-\(stamp)")
+        let bundle = try AdapterArtifacts.makeBundle(command: "release-run", projectRoot: root, stamp: stamp)
+        let buildOutputDir = bundle.directory.appending(path: "artifacts")
         let ipaFileName = "\(AppRegistrationSupport.slug(scheme, fallback: "app")).ipa"
         let ipaPath = buildOutputDir.appending(path: ipaFileName)
-        let artifactList = [
-            jsonPath.path(percentEncoded: false),
-            logPath.path(percentEncoded: false),
-            ipaPath.path(percentEncoded: false)
-        ]
+        let artifactList = bundle.artifacts + [ipaPath.path(percentEncoded: false)]
+        let signingMode: ReleaseCheckMode = request.allowSigningWrite ? .syncCerts : .readonlyCerts
+        let uploadStep = uploadStep(for: request.stage)
+        let resumeState = resumableUploadState(
+            projectRoot: root,
+            stage: request.stage,
+            signingMode: signingMode,
+            uploadStep: uploadStep
+        )
 
         var records: [StepRecord] = []
         var logLines: [String] = [
@@ -151,10 +153,23 @@ public struct ReleaseRunEngine: Sendable {
             "profile=\(request.profile.name)",
             "projectRoot=\(root.path(percentEncoded: false))",
             "stage=\(request.stage.rawValue)",
-            "signingMode=\(request.allowSigningWrite ? ReleaseCheckMode.syncCerts.rawValue : ReleaseCheckMode.readonlyCerts.rawValue)",
+            "signingMode=\(signingMode.rawValue)",
             "scheme=\(scheme)",
             ""
         ]
+        syncState(
+            projectRoot: root,
+            stage: request.stage,
+            signingMode: signingMode,
+            status: "running",
+            summary: "release-run started (\(request.stage.rawValue))",
+            records: records,
+            nextStep: .releaseInit,
+            failedStep: nil,
+            failureCode: nil,
+            artifactDirectory: bundle.directory.path(percentEncoded: false),
+            ipaPath: resumeState?.ipaPath
+        )
 
         do {
             _ = try releaseInitEngine.releaseInit(
@@ -175,15 +190,28 @@ public struct ReleaseRunEngine: Sendable {
             )
             records.append(record)
             logLines += logEntry(for: record)
+            syncState(
+                projectRoot: root,
+                stage: request.stage,
+                signingMode: signingMode,
+                status: "running",
+                summary: record.summary,
+                records: records,
+                nextStep: .releaseCheck,
+                failedStep: nil,
+                failureCode: nil,
+                artifactDirectory: bundle.directory.path(percentEncoded: false),
+                ipaPath: resumeState?.ipaPath
+            )
         } catch let error as ReleaseInitEngineError {
             let summary = releaseInitSummary(error)
             throw try fail(
-                jsonPath: jsonPath,
-                logPath: logPath,
+                bundle: bundle,
                 projectRoot: root,
                 records: &records,
                 logLines: &logLines,
                 stage: request.stage,
+                signingMode: signingMode,
                 step: .releaseInit,
                 classification: .preflight,
                 summary: summary,
@@ -194,7 +222,6 @@ public struct ReleaseRunEngine: Sendable {
         }
 
         do {
-            let signingMode: ReleaseCheckMode = request.allowSigningWrite ? .syncCerts : .readonlyCerts
             let result = try releaseChecker.releaseCheck(
                 request: ReleaseCheckRequest(
                     projectRoot: root,
@@ -213,17 +240,30 @@ public struct ReleaseRunEngine: Sendable {
             )
             records.append(record)
             logLines += logEntry(for: record)
+            syncState(
+                projectRoot: root,
+                stage: request.stage,
+                signingMode: signingMode,
+                status: "running",
+                summary: result.summary,
+                records: records,
+                nextStep: resumeState == nil ? .tuistInstall : uploadStep?.step,
+                failedStep: nil,
+                failureCode: nil,
+                artifactDirectory: bundle.directory.path(percentEncoded: false),
+                ipaPath: resumeState?.ipaPath
+            )
         } catch let error as ReleaseCheckEngineError {
             let failure: ReleaseRunEngineError
             switch error {
             case .failed(_, _, let summary, let exitCode, _):
                 failure = try fail(
-                    jsonPath: jsonPath,
-                    logPath: logPath,
+                    bundle: bundle,
                     projectRoot: root,
                     records: &records,
                     logLines: &logLines,
                     stage: request.stage,
+                    signingMode: signingMode,
                     step: .releaseCheck,
                     classification: .preflight,
                     summary: summary,
@@ -236,6 +276,115 @@ public struct ReleaseRunEngine: Sendable {
         }
 
         let commandEnvironment = makeCommandEnvironment(from: effectiveEnvironment)
+        if let resumeState, let uploadStep {
+            let resumeIPAPath = resumeState.ipaPath ?? ipaPath.path(percentEncoded: false)
+            let reusedIPARecord = StepRecord(
+                step: .fastlaneBuild,
+                classification: .build,
+                status: "success",
+                command: nil,
+                exitCode: 0,
+                summary: "reusing existing IPA from \(resumeIPAPath)"
+            )
+            records.append(reusedIPARecord)
+            logLines += logEntry(for: reusedIPARecord)
+            syncState(
+                projectRoot: root,
+                stage: request.stage,
+                signingMode: signingMode,
+                status: "running",
+                summary: reusedIPARecord.summary,
+                records: records,
+                nextStep: uploadStep.step,
+                failedStep: nil,
+                failureCode: nil,
+                artifactDirectory: bundle.directory.path(percentEncoded: false),
+                ipaPath: resumeIPAPath
+            )
+
+            var uploadEnvironment = commandEnvironment
+            uploadEnvironment["IPA_PATH"] = resumeIPAPath
+            let uploadResult = try runCommand(
+                command: uploadStep.command,
+                workingDirectory: root,
+                environment: uploadEnvironment
+            )
+            let uploadRecord = makeCommandRecord(
+                step: uploadStep.step,
+                classification: uploadStep.classification,
+                command: uploadStep.command,
+                result: uploadResult,
+                successSummary: uploadStep.successSummary,
+                sanitizedEnvironment: sanitizedEnvironment
+            )
+            records.append(uploadRecord)
+            logLines += logEntry(
+                for: uploadRecord,
+                stdout: SecretRedactionSupport.redact(
+                    uploadResult.stdout,
+                    environment: sanitizedEnvironment,
+                    keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
+                ),
+                stderr: SecretRedactionSupport.redact(
+                    uploadResult.stderr,
+                    environment: sanitizedEnvironment,
+                    keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
+                )
+            )
+            if uploadResult.exitCode != 0 {
+                throw try fail(
+                    bundle: bundle,
+                    projectRoot: root,
+                    records: &records,
+                    logLines: &logLines,
+                    stage: request.stage,
+                    signingMode: signingMode,
+                    step: uploadStep.step,
+                    classification: uploadStep.classification,
+                    summary: uploadRecord.summary,
+                    exitCode: uploadResult.exitCode,
+                    ipaPath: resumeIPAPath,
+                    appendRecord: false,
+                    artifacts: bundle.artifacts + [resumeIPAPath]
+                )
+            }
+
+            let summary = "release-run passed (\(request.stage.rawValue))"
+            let resumedArtifacts = bundle.artifacts + [resumeIPAPath]
+            try writeArtifact(
+                bundle: bundle,
+                status: "success",
+                exitCode: 0,
+                summary: summary,
+                stage: request.stage,
+                failureCode: nil,
+                failedStep: nil,
+                records: records,
+                ipaPath: resumeIPAPath,
+                artifacts: resumedArtifacts
+            )
+            syncState(
+                projectRoot: root,
+                stage: request.stage,
+                signingMode: signingMode,
+                status: "success",
+                summary: summary,
+                records: records,
+                nextStep: nil,
+                failedStep: nil,
+                failureCode: nil,
+                artifactDirectory: bundle.directory.path(percentEncoded: false),
+                ipaPath: resumeIPAPath
+            )
+
+            return ReleaseRunResult(
+                artifacts: resumedArtifacts,
+                summary: summary,
+                stage: request.stage,
+                ipaPath: resumeIPAPath
+            )
+        }
+
         let generationSteps: [(ReleaseRunStep, [String])] = [
             (.tuistInstall, ["tuist", "install"]),
             (.tuistGenerate, ["tuist", "generate", "--no-open"])
@@ -264,14 +413,27 @@ public struct ReleaseRunEngine: Sendable {
                     keys: ["ASC_KEY_P8_BASE64", "MATCH_PASSWORD"]
                 )
             )
+            syncState(
+                projectRoot: root,
+                stage: request.stage,
+                signingMode: signingMode,
+                status: "running",
+                summary: record.summary,
+                records: records,
+                nextStep: step == .tuistInstall ? .tuistGenerate : .workspaceResolve,
+                failedStep: nil,
+                failureCode: nil,
+                artifactDirectory: bundle.directory.path(percentEncoded: false),
+                ipaPath: nil
+            )
             if result.exitCode != 0 {
                 throw try fail(
-                    jsonPath: jsonPath,
-                    logPath: logPath,
+                    bundle: bundle,
                     projectRoot: root,
                     records: &records,
                     logLines: &logLines,
                     stage: request.stage,
+                    signingMode: signingMode,
                     step: step,
                     classification: .generation,
                     summary: record.summary,
@@ -285,12 +447,12 @@ public struct ReleaseRunEngine: Sendable {
 
         guard let workspacePath = ProjectBuildSupport.resolveWorkspacePath(projectRoot: root) else {
             throw try fail(
-                jsonPath: jsonPath,
-                logPath: logPath,
+                bundle: bundle,
                 projectRoot: root,
                 records: &records,
                 logLines: &logLines,
                 stage: request.stage,
+                signingMode: signingMode,
                 step: .workspaceResolve,
                 classification: .workspace,
                 summary: "generated workspace not found after `tuist generate`",
@@ -310,6 +472,19 @@ public struct ReleaseRunEngine: Sendable {
         )
         records.append(workspaceRecord)
         logLines += logEntry(for: workspaceRecord)
+        syncState(
+            projectRoot: root,
+            stage: request.stage,
+            signingMode: signingMode,
+            status: "running",
+            summary: workspaceRecord.summary,
+            records: records,
+            nextStep: .fastlaneBuild,
+            failedStep: nil,
+            failureCode: nil,
+            artifactDirectory: bundle.directory.path(percentEncoded: false),
+            ipaPath: nil
+        )
 
         var buildEnvironment = commandEnvironment
         buildEnvironment["BOS_WORKSPACE_PATH"] = workspacePath.path(percentEncoded: false)
@@ -346,12 +521,12 @@ public struct ReleaseRunEngine: Sendable {
         )
         if buildResult.exitCode != 0 {
             throw try fail(
-                jsonPath: jsonPath,
-                logPath: logPath,
+                bundle: bundle,
                 projectRoot: root,
                 records: &records,
                 logLines: &logLines,
                 stage: request.stage,
+                signingMode: signingMode,
                 step: .fastlaneBuild,
                 classification: .build,
                 summary: buildRecord.summary,
@@ -364,12 +539,12 @@ public struct ReleaseRunEngine: Sendable {
 
         if !FileManager.default.fileExists(atPath: ipaPath.path(percentEncoded: false)) {
             throw try fail(
-                jsonPath: jsonPath,
-                logPath: logPath,
+                bundle: bundle,
                 projectRoot: root,
                 records: &records,
                 logLines: &logLines,
                 stage: request.stage,
+                signingMode: signingMode,
                 step: .fastlaneBuild,
                 classification: .build,
                 summary: "expected IPA at \(ipaPath.path(percentEncoded: false)) after fastlane build",
@@ -379,7 +554,20 @@ public struct ReleaseRunEngine: Sendable {
             )
         }
 
-        let uploadStep = uploadStep(for: request.stage)
+        syncState(
+            projectRoot: root,
+            stage: request.stage,
+            signingMode: signingMode,
+            status: "running",
+            summary: buildRecord.summary,
+            records: records,
+            nextStep: uploadStep?.step,
+            failedStep: nil,
+            failureCode: nil,
+            artifactDirectory: bundle.directory.path(percentEncoded: false),
+            ipaPath: ipaPath.path(percentEncoded: false)
+        )
+
         if let uploadStep {
             var uploadEnvironment = buildEnvironment
             uploadEnvironment["IPA_PATH"] = ipaPath.path(percentEncoded: false)
@@ -412,12 +600,12 @@ public struct ReleaseRunEngine: Sendable {
             )
             if uploadResult.exitCode != 0 {
                 throw try fail(
-                    jsonPath: jsonPath,
-                    logPath: logPath,
+                    bundle: bundle,
                     projectRoot: root,
                     records: &records,
                     logLines: &logLines,
                     stage: request.stage,
+                    signingMode: signingMode,
                     step: uploadStep.step,
                     classification: uploadStep.classification,
                     summary: uploadRecord.summary,
@@ -430,9 +618,8 @@ public struct ReleaseRunEngine: Sendable {
         }
 
         let summary = "release-run passed (\(request.stage.rawValue))"
-        try RuntimeSupport.writeFile(to: logPath, content: logLines.joined(separator: "\n") + "\n")
         try writeArtifact(
-            to: jsonPath,
+            bundle: bundle,
             status: "success",
             exitCode: 0,
             summary: summary,
@@ -443,11 +630,18 @@ public struct ReleaseRunEngine: Sendable {
             ipaPath: ipaPath.path(percentEncoded: false),
             artifacts: artifactList
         )
-        BosStateStore.updateSummary(
+        syncState(
             projectRoot: root,
-            kind: .releaseRun,
+            stage: request.stage,
+            signingMode: signingMode,
             status: "success",
-            message: summary
+            summary: summary,
+            records: records,
+            nextStep: nil,
+            failedStep: nil,
+            failureCode: nil,
+            artifactDirectory: bundle.directory.path(percentEncoded: false),
+            ipaPath: ipaPath.path(percentEncoded: false)
         )
 
         return ReleaseRunResult(
@@ -614,12 +808,12 @@ private extension ReleaseRunEngine {
     }
 
     func fail(
-        jsonPath: URL,
-        logPath: URL,
+        bundle: AdapterArtifactBundle,
         projectRoot: URL,
         records: inout [StepRecord],
         logLines: inout [String],
         stage: ReleaseRunStage,
+        signingMode: ReleaseCheckMode,
         step: ReleaseRunStep,
         classification: ReleaseRunFailureCode,
         summary: String,
@@ -640,9 +834,8 @@ private extension ReleaseRunEngine {
             records.append(record)
             logLines += logEntry(for: record)
         }
-        try RuntimeSupport.writeFile(to: logPath, content: logLines.joined(separator: "\n") + "\n")
         try writeArtifact(
-            to: jsonPath,
+            bundle: bundle,
             status: "failed",
             exitCode: 9,
             summary: summary,
@@ -653,11 +846,18 @@ private extension ReleaseRunEngine {
             ipaPath: ipaPath,
             artifacts: artifacts
         )
-        BosStateStore.updateSummary(
+        syncState(
             projectRoot: projectRoot,
-            kind: .releaseRun,
+            stage: stage,
+            signingMode: signingMode,
             status: "failed",
-            message: summary
+            summary: summary,
+            records: records,
+            nextStep: resumeStep(for: step, stage: stage, ipaPath: ipaPath),
+            failedStep: step,
+            failureCode: classification,
+            artifactDirectory: bundle.directory.path(percentEncoded: false),
+            ipaPath: ipaPath
         )
         return ReleaseRunEngineError.failed(
             classification: classification,
@@ -669,7 +869,7 @@ private extension ReleaseRunEngine {
     }
 
     func writeArtifact(
-        to path: URL,
+        bundle: AdapterArtifactBundle,
         status: String,
         exitCode: Int,
         summary: String,
@@ -680,22 +880,42 @@ private extension ReleaseRunEngine {
         ipaPath: String,
         artifacts: [String]
     ) throws {
-        let payload = ArtifactPayload(
-            command: "release-run",
-            status: status,
-            exitCode: exitCode,
-            summary: summary,
-            stage: stage.rawValue,
-            failureCode: failureCode?.rawValue,
-            failedStep: failedStep?.rawValue,
-            ipaPath: ipaPath,
-            steps: records,
-            artifacts: artifacts
+        _ = try AdapterArtifacts.write(
+            bundle: bundle,
+            envelope: AdapterRunEnvelope(
+                command: "release-run",
+                status: status,
+                exitCode: exitCode,
+                summary: summary,
+                payload: ArtifactPayload(
+                    command: "release-run",
+                    status: status,
+                    exitCode: exitCode,
+                    summary: summary,
+                    stage: stage.rawValue,
+                    failureCode: failureCode?.rawValue,
+                    failedStep: failedStep?.rawValue,
+                    ipaPath: ipaPath,
+                    steps: records,
+                    artifacts: artifacts
+                )
+            ),
+            stdout: renderLog(records: records, summary: summary, stage: stage),
+            stderr: "",
+            extraArtifacts: [URL(fileURLWithPath: ipaPath)]
         )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(payload)
-        try RuntimeSupport.writeFile(to: path, data: data)
+    }
+
+    func renderLog(records: [StepRecord], summary: String, stage: ReleaseRunStage) -> String {
+        var lines: [String] = [
+            "# bos release-run",
+            "stage=\(stage.rawValue)",
+            "summary=\(summary)"
+        ]
+        for record in records {
+            lines += logEntry(for: record)
+        }
+        return lines.joined(separator: "\n") + "\n"
     }
 
     func truncate(_ text: String, limit: Int = 400) -> String {
@@ -703,5 +923,69 @@ private extension ReleaseRunEngine {
         guard trimmed.count > limit else { return trimmed }
         let end = trimmed.index(trimmed.startIndex, offsetBy: limit)
         return "\(trimmed[..<end])..."
+    }
+
+    func resumableUploadState(
+        projectRoot: URL,
+        stage: ReleaseRunStage,
+        signingMode: ReleaseCheckMode,
+        uploadStep: UploadStep?
+    ) -> BootstrapLock.ReleaseRunState? {
+        guard let uploadStep,
+              let state = BosStateStore.releaseRunState(projectRoot: projectRoot),
+              state.status == "failed",
+              state.stage == stage.rawValue,
+              state.signingMode == signingMode.rawValue,
+              state.completedSteps.contains(ReleaseRunStep.fastlaneBuild.rawValue),
+              state.nextStep == uploadStep.step.rawValue || state.failedStep == uploadStep.step.rawValue,
+              let ipaPath = state.ipaPath,
+              FileManager.default.fileExists(atPath: ipaPath) else {
+            return nil
+        }
+        return state
+    }
+
+    func resumeStep(for step: ReleaseRunStep, stage: ReleaseRunStage, ipaPath: String) -> ReleaseRunStep? {
+        let hasReusableIPA = FileManager.default.fileExists(atPath: ipaPath)
+        switch step {
+        case .fastlaneBeta where hasReusableIPA,
+             .fastlaneRelease where hasReusableIPA,
+             .fastlaneSubmit where hasReusableIPA:
+            return step
+        case .fastlaneBuild where hasReusableIPA:
+            return uploadStep(for: stage)?.step
+        default:
+            return nil
+        }
+    }
+
+    func syncState(
+        projectRoot: URL,
+        stage: ReleaseRunStage,
+        signingMode: ReleaseCheckMode,
+        status: String,
+        summary: String,
+        records: [StepRecord],
+        nextStep: ReleaseRunStep?,
+        failedStep: ReleaseRunStep?,
+        failureCode: ReleaseRunFailureCode?,
+        artifactDirectory: String?,
+        ipaPath: String?
+    ) {
+        BosStateStore.updateReleaseRunState(
+            projectRoot: projectRoot,
+            stage: stage.rawValue,
+            signingMode: signingMode.rawValue,
+            status: status,
+            summary: summary,
+            completedSteps: records
+                .filter { $0.status == "success" }
+                .map { $0.step.rawValue },
+            nextStep: nextStep?.rawValue,
+            failedStep: failedStep?.rawValue,
+            failureCode: failureCode?.rawValue,
+            artifactDirectory: artifactDirectory,
+            ipaPath: ipaPath
+        )
     }
 }
