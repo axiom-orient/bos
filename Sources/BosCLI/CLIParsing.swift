@@ -139,7 +139,7 @@ func parseDoctorScope(
     guard let raw else { return .core }
     guard let scope = DoctorScope(rawValue: raw) else {
         fail(
-            message: "invalid --for '\(raw)'. expected one of: core, all, plan, apply, verify, app-register, release-init, release-check, release-run",
+            message: "invalid --for '\(raw)'. expected one of: core, all, plan, apply, verify, metadata, screenshots, device, app-register, release-init, release-check, release-run",
             command: command,
             format: format
         )

@@ -77,8 +77,8 @@ How it appears:
 | `verify` | run smoke validation for generated projects | generated project, full Xcode developer dir | `.bos/state/bos.state.yaml`, `.bos/artifacts/verify/` |
 | `asc` | forward raw low-level App Store Connect commands through BOS-managed context | current project root, profile SSOT, signing env, forwarded `asc` args | `.bos/artifacts/asc/` |
 | `metadata` | round-trip localized App Store metadata under the BOS directory contract | profile for default locale, signing env for pull/diff/push | `metadata/`, `.bos/artifacts/metadata-*/` |
-| `screenshots` | validate screenshot plans, generate raw captures, compose exports, and verify coverage | `config/screenshots.plan.yaml` | `screenshots/raw/`, `screenshots/export/`, `.bos/artifacts/screenshots-*/` |
-| `device` | normalize simulator and physical-device workflows with stable JSON output | optional target device or app/bundle input per subcommand | `.bos/artifacts/device-*/` |
+| `screenshots` | validate screenshot plans, generate simulator-backed raw captures, compose exports, and verify coverage | `config/screenshots.plan.yaml` | `screenshots/raw/`, `screenshots/export/`, `.bos/artifacts/screenshots-*/` |
+| `device` | normalize simulator workflows with stable JSON output and fail unsupported physical flows explicitly | optional target device or app/bundle input per subcommand | `.bos/artifacts/device-*/` |
 | `app-register` | create or confirm Bundle ID and ASC app record | profile identity fields, ASC env, optional blueprint | `.bos/artifacts/app-register/`, synced profile output |
 | `release-init` | create fastlane scaffold | blueprint, profile, signing env | `fastlane/Fastfile`, `fastlane/Appfile`, `fastlane/Matchfile`, `.bos/artifacts/release-init/` |
 | `release-check` | validate live release readiness | profile, signing env, release scaffold for cert modes | `.bos/artifacts/release-check/`, `.bos/state/bos.state.yaml` |
@@ -92,12 +92,18 @@ How it appears:
 - `asc` preserves raw `asc` stdout/stderr and exit codes as much as possible, but writes BOS-managed redacted artifacts.
 - `metadata` preserves unknown files in locale directories and validates required text completeness before push.
 - `screenshots` treats `config/screenshots.plan.yaml` as the SSOT for locale/device/export coverage and writes manifest-backed artifact bundles per subcommand.
+- `screenshots capture` is simulator-first in the current runtime. Physical-device capture is not implemented.
 - `device` keeps simulator and physical-device responsibilities on a separate command surface from release or App Store onboarding flows.
+- `device list|install|launch` are simulator-backed in the current runtime; `install` and `launch` boot listed shutdown simulators before executing, while `register` and `logs` return explicit unsupported failures.
 - `release-init` is local scaffold generation only.
 - `release-check` is the live release-readiness gate. Signing remains local/fastlane-backed; App Store readiness is ASC-backed.
 - `release-run` owns the signed `build | beta | release | submit` stages.
 - `readonly-certs` is the default readiness path.
 - `sync-certs --allow-write` is only for the first signing seed on an empty setup.
+- `config/release.policy.yaml` can tighten submit preflight:
+  `defaultSigningMode` sets the default release-check mode, but `sync-certs` still requires explicit `--allow-signing-write`.
+  `releaseAutomation` is forwarded to the fastlane submit lane as the automation mode.
+  `requiredLocales` must include the profile primary language, and when screenshots validation is enabled it must also be covered by the screenshot plan.
 - `MATCH_GIT_URL` belongs in `profile.yaml`, though a shell environment override may still provide the effective value.
 - `bos` runs `asc` in env-only mode with no keychain or `.asc/config.json` dependence.
 
@@ -148,6 +154,7 @@ bos release-run --stage beta
 ## Related Docs
 
 - [README](../README.md)
+- [Capability Matrix](../docs/CAPABILITY_MATRIX.md)
 - [Operations Guide](../docs/OPERATIONS_GUIDE.md)
 - [Architecture](../docs/ARCHITECTURE.md)
 - [Testing Guide](../docs/TESTING_GUIDE.md)

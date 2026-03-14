@@ -9,9 +9,9 @@ Read these files in order when working in this repository:
 3. [Testing Guide](docs/TESTING_GUIDE.md)
 4. [Operations Guide](docs/OPERATIONS_GUIDE.md) only for onboarding or release work
 
-## Required Runtime Metadata
+## Managed-Project Runtime Metadata
 
-These are not convenience docs. They are runtime inputs or outputs:
+For a BOS-managed app project, these are runtime inputs or outputs:
 
 - `config/toolchain.lock.yaml`
 - `bos.project.yaml`
@@ -23,6 +23,8 @@ These are not convenience docs. They are runtime inputs or outputs:
 
 Rules:
 
+- Do not assume this source repository root itself contains a committed managed-project setup.
+- In this repository, managed-project examples live under `bos_blueprint/examples/`.
 - Treat `.bos/artifacts/` as runtime output, not documentation.
 - Treat `config/bos.profile.yaml` as the only non-secret SSOT.
 - Treat `.bos/secrets/signing.env` as secret input. Do not commit real values.

@@ -237,6 +237,33 @@ extension ReleaseInitEngine {
             value.empty? ? "app.ipa" : value
           end
 
+          private_lane :release_automation_mode do
+            value = ENV["BOS_RELEASE_AUTOMATION"].to_s.strip
+            value.empty? ? "manual" : value
+          end
+
+          private_lane :submit_delivery_options do
+            options = {
+              api_key: asc_api_key,
+              ipa: ENV["IPA_PATH"],
+              submit_for_review: true
+            }
+
+            case release_automation_mode
+            when "auto"
+              options[:automatic_release] = true
+              options[:phased_release] = false
+            when "phased"
+              options[:automatic_release] = false
+              options[:phased_release] = true
+            else
+              options[:automatic_release] = false
+              options[:phased_release] = false
+            end
+
+            options
+          end
+
           private_lane :release_bundle_identifier do
             CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier).to_s.strip
           end
@@ -292,8 +319,7 @@ extension ReleaseInitEngine {
           end
 
           lane :submit do
-            api_key = asc_api_key
-            deliver(api_key: api_key, ipa: ENV["IPA_PATH"], submit_for_review: true)
+            deliver(submit_delivery_options)
           end
 
           lane :release_metadata do

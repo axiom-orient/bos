@@ -62,6 +62,31 @@ struct RepositoryIntegrityTests {
             }
         }
     }
+
+    @Test func sourceRepositoryKeepsManagedProjectExamplesOutOfRoot() throws {
+        let root = repositoryRoot()
+        let fm = FileManager.default
+
+        #expect(!fm.fileExists(atPath: root.appending(path: "bos.project.yaml").path(percentEncoded: false)))
+        #expect(!fm.fileExists(atPath: root.appending(path: "config/bos.profile.yaml").path(percentEncoded: false)))
+        #expect(!fm.fileExists(atPath: root.appending(path: "config/release.policy.yaml").path(percentEncoded: false)))
+        #expect(!fm.fileExists(atPath: root.appending(path: "config/screenshots.plan.yaml").path(percentEncoded: false)))
+
+        let expectedExamples = [
+            "bos_blueprint/examples/bos.project.yaml",
+            "bos_blueprint/examples/bos.profile.yaml",
+            "bos_blueprint/examples/blueprint.lock.yaml",
+            "bos_blueprint/examples/release.policy.yaml",
+            "bos_blueprint/examples/screenshots.plan.yaml"
+        ]
+
+        for relativePath in expectedExamples {
+            #expect(
+                fm.fileExists(atPath: root.appending(path: relativePath).path(percentEncoded: false)),
+                "Missing managed-project example fixture: \(relativePath)"
+            )
+        }
+    }
 }
 
 private extension RepositoryIntegrityTests {

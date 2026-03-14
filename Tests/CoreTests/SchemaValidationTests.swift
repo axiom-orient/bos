@@ -254,7 +254,7 @@ struct SchemaValidationTests {
           "tools": {
             "swift": {
               "versionRule": { "kind": "semver-range", "value": ">=6.0 <7.0" },
-              "requiredFor": ["plan", "apply", "verify", "release-init", "release-run"],
+              "requiredFor": ["plan", "apply", "verify", "metadata", "screenshots", "device", "app-register", "release-init", "release-check", "release-run"],
               "installHints": ["xcode-select --install", "brew install swift"]
             },
             "xcode": {
@@ -311,6 +311,7 @@ struct SchemaValidationTests {
         """
         let model = try decoder.decode(ToolchainLock.self, from: Data(json.utf8))
         #expect(model.schemaVersion == 2)
+        #expect(model.tools.swift.requiredFor == ["plan", "apply", "verify", "metadata", "screenshots", "device", "app-register", "release-init", "release-check", "release-run"])
         #expect(model.tools.xcode?.requiredFor == ["verify", "release-run"])
         #expect(model.tools.tuist.requiredFor == ["apply", "verify", "release-run"])
         #expect(model.tools.ruby?.requiredFor == ["release-init", "release-check", "release-run"])
@@ -664,6 +665,53 @@ struct SchemaValidationTests {
             if case .unknownKeys(let schema, let keys) = error {
                 #expect(schema == "BosProjectManifest.paths")
                 #expect(keys == ["extra"])
+            } else {
+                Issue.record("unexpected SchemaValidationError: \(error)")
+            }
+        }
+    }
+
+    @Test func releasePolicyV1DecodesValidPayload() throws {
+        let json = """
+        {
+          "schemaVersion": 1,
+          "submitRequirements": {
+            "metadataValidation": true,
+            "screenshotsValidation": true
+          },
+          "defaultSigningMode": "readonly-certs",
+          "releaseAutomation": "manual",
+          "requiredLocales": ["en-US", "ko-KR"]
+        }
+        """
+
+        let policy = try decoder.decode(ReleasePolicy.self, from: Data(json.utf8))
+        #expect(policy.submitRequirements.metadataValidation == true)
+        #expect(policy.submitRequirements.screenshotsValidation == true)
+        #expect(policy.requiredLocales == ["en-US", "ko-KR"])
+    }
+
+    @Test func releasePolicyV1RejectsUnknownSigningMode() throws {
+        let json = """
+        {
+          "schemaVersion": 1,
+          "submitRequirements": {
+            "metadataValidation": true,
+            "screenshotsValidation": false
+          },
+          "defaultSigningMode": "auto",
+          "releaseAutomation": "manual",
+          "requiredLocales": ["en-US"]
+        }
+        """
+
+        do {
+            _ = try decoder.decode(ReleasePolicy.self, from: Data(json.utf8))
+            Issue.record("expected SchemaValidationError.invalidValue to be thrown")
+        } catch let error as SchemaValidationError {
+            if case .invalidValue(let schema, let field, _) = error {
+                #expect(schema == "ReleasePolicy")
+                #expect(field == "defaultSigningMode")
             } else {
                 Issue.record("unexpected SchemaValidationError: \(error)")
             }

@@ -26,7 +26,7 @@ The design is intentionally flat. `BosCLI` now keeps dispatch, shared support, a
 ### Runtime Files
 
 - Toolchain policy: `config/toolchain.lock.yaml`
-- Root sentinel: `bos.project.yaml`
+- Root sentinel for a BOS-managed app project: `bos.project.yaml`
 - Onboarding SSOT: `config/bos.profile.yaml`
 - Signing secrets: `.bos/secrets/signing.env`
 - Plan output: `config/blueprint.lock.yaml`
@@ -99,8 +99,8 @@ Each command owns one main engine.
 | `apply` | [`ApplyEngine.swift`](../Sources/BosCore/ApplyEngine.swift) | Generate scaffold and manage drift-safe updates |
 | `verify` | [`VerifyEngine.swift`](../Sources/BosCore/VerifyEngine.swift) | Run `tuist` + `xcodebuild` smoke validation |
 | `metadata` | [`MetadataEngine.swift`](../Sources/BosCore/MetadataEngine.swift) | Round-trip App Store metadata under the BOS directory contract |
-| `screenshots` | [`ScreenshotsEngine.swift`](../Sources/BosCore/ScreenshotsEngine.swift) | Validate screenshot plans, materialize captures, compose exports, and verify output coverage |
-| `device` | [`DeviceEngine.swift`](../Sources/BosCore/DeviceEngine.swift) | Normalize simulator/physical-device workflows and emit stable artifacted results |
+| `screenshots` | [`ScreenshotsEngine.swift`](../Sources/BosCore/ScreenshotsEngine.swift) | Validate screenshot plans, run simulator-backed capture, compose exports, and verify output coverage |
+| `device` | [`DeviceEngine.swift`](../Sources/BosCore/DeviceEngine.swift) | Normalize simulator-backed device workflows and emit explicit unsupported failures for out-of-scope paths |
 | `app-register` | [`AppRegistrationEngine.swift`](../Sources/BosCore/AppRegistrationEngine.swift) | Resolve onboarding metadata and register ASC resources |
 | `release-init` | [`ReleaseInitEngine.swift`](../Sources/BosCore/ReleaseInitEngine.swift) | Generate fastlane scaffold and lane files |
 | `release-check` | [`ReleaseCheckEngine.swift`](../Sources/BosCore/ReleaseCheckEngine.swift) | Validate release readiness against live external systems |
@@ -140,7 +140,7 @@ Shared files define the command contract and runtime policy.
 - Markdown planning corpus from `PLAN/`
 - Optional PRD markers
 - Optional onboarding overrides from CLI
-- Root sentinel from `bos.project.yaml`
+- Root sentinel from `bos.project.yaml` in a BOS-managed app project
 - Profile SSOT from `config/bos.profile.yaml`
 - Signing secrets from `.bos/secrets/signing.env`
 - Deterministic `asc` env bridge from BOS-managed inputs only
@@ -193,6 +193,8 @@ Current regression suite covers:
 - release-run stage semantics
 
 See [Testing Guide](./TESTING_GUIDE.md).
+
+Current product maturity by domain is tracked in [Capability Matrix](./CAPABILITY_MATRIX.md).
 
 ## Repository Layout
 

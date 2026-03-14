@@ -38,8 +38,8 @@ Document the minimum compatibility matrix BOS v2 expects for local execution and
 
 The supported fresh-machine path must succeed using canonical v2 inputs only:
 
-- `bos.project.yaml`
-- `config/bos.profile.yaml`
+- `bos.project.yaml` in a BOS-managed app project
+- `config/bos.profile.yaml` in a BOS-managed app project
 - `config/blueprint.lock.yaml`
-- `config/screenshots.plan.yaml`
+- `config/screenshots.plan.yaml` in a BOS-managed app project
 - `.bos/secrets/signing.env`

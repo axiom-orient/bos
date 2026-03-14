@@ -28,6 +28,9 @@ enum DoctorScope: String {
     case plan
     case apply
     case verify
+    case metadata
+    case screenshots
+    case device
     case appRegister = "app-register"
     case releaseInit = "release-init"
     case releaseCheck = "release-check"
@@ -45,6 +48,12 @@ enum DoctorScope: String {
             return [ToolchainLock.commandApply]
         case .verify:
             return [ToolchainLock.commandVerify]
+        case .metadata:
+            return [ToolchainLock.commandMetadata]
+        case .screenshots:
+            return [ToolchainLock.commandScreenshots]
+        case .device:
+            return [ToolchainLock.commandDevice]
         case .appRegister:
             return [ToolchainLock.commandAppRegister]
         case .releaseInit:
@@ -220,7 +229,7 @@ enum BosCommand: String, CaseIterable {
     var usage: String {
         switch self {
         case .doctor:
-            return "bos doctor [--for core|all|plan|apply|verify|app-register|release-init|release-check|release-run] [--project-root <path>] [--format human|json]"
+            return "bos doctor [--for core|all|plan|apply|verify|metadata|screenshots|device|app-register|release-init|release-check|release-run] [--project-root <path>] [--format human|json]"
         case .plan:
             return "bos plan (--prd <path> | --plan-dir <path>) [--profile <path>] [--out <blueprint.yaml>] [--project-root <path>] [--company-name <name>] [--app-name <name>] [--app-identifier <id>] [--apple-team-id <team>] [--primary-language en-US|ko-KR] [--sku <value>] [--format human|json]"
         case .apply:

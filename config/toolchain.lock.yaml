@@ -4,23 +4,55 @@ tools:
     versionRule:
       kind: semver-range
       value: ">=6.0 <7.0"
-    requiredFor: [plan, apply, verify, release-init]
+    requiredFor: [plan, apply, verify, metadata, screenshots, device, app-register, release-init, release-check, release-run]
     installHints:
       - xcode-select --install
       - brew install swift
+  xcode:
+    versionRule:
+      kind: semver-range
+      value: ">=16.0 <17.0"
+    requiredFor: [verify, release-run]
+    installHints:
+      - xcode-select --install
+      - sudo xcode-select -s /Applications/Xcode.app
   tuist:
     versionRule:
       kind: semver-range
       value: ">=4.153.1 <5.0.0"
-    requiredFor: [apply, verify]
+    requiredFor: [apply, verify, release-run]
     installHints:
       - brew install tuist
       - mise use -g tuist@latest
+  ruby:
+    versionRule:
+      kind: semver-range
+      value: ">=3.0 <4.0"
+    requiredFor: [release-init, release-check, release-run]
+    installHints:
+      - brew install ruby
+      - mise use -g ruby@latest
+  bundler:
+    versionRule:
+      kind: semver-range
+      value: ">=2.0 <3.0"
+    requiredFor: [release-init, release-check, release-run]
+    installHints:
+      - gem install bundler
+      - bundle --version
+  node:
+    versionRule:
+      kind: semver-range
+      value: ">=20.0 <23.0"
+    requiredFor: [metadata, screenshots]
+    installHints:
+      - brew install node
+      - mise use -g node@latest
   fastlane:
     versionRule:
       kind: semver-range
       value: ">=2.228.0 <3.0.0"
-    requiredFor: [release-init]
+    requiredFor: [release-init, release-check, release-run]
     installHints:
       - brew install fastlane
       - gem install fastlane -NV
@@ -32,6 +64,22 @@ tools:
     installHints:
       - brew install asc
       - curl -fsSL https://asccli.sh/install | bash
+  devicectl:
+    versionRule:
+      kind: present
+      value: "present"
+    requiredFor: [device, screenshots]
+    installHints:
+      - xcode-select --install
+      - xcrun --find devicectl
+  simctl:
+    versionRule:
+      kind: present
+      value: "present"
+    requiredFor: [screenshots, verify]
+    installHints:
+      - xcode-select --install
+      - xcrun --find simctl
 tmaPluginRef:
   type: git-sha
   value: 7c00394f304f966f4ce621a7b72f2b3b19789509

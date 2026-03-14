@@ -27,6 +27,20 @@ func runReleaseRun(args: [String], format: OutputFormat) {
         command: .releaseRun,
         format: format
     )
+    let releasePolicyContext = loadOptionalReleasePolicyContext(
+        projectRoot: projectRoot,
+        command: .releaseRun,
+        format: format
+    )
+    let screenshotPlanContext: CLIScreenshotPlanContext? =
+        stage == .submit && releasePolicyContext.policy.submitRequirements.screenshotsValidation
+        ? loadScreenshotPlanContext(
+            raw: nil,
+            projectRoot: projectRoot,
+            command: .releaseRun,
+            format: format
+        )
+        : nil
     let allowSigningWrite = parsed.flags.contains("--allow-signing-write")
 
     let signingContext = loadSigningContext(
@@ -52,7 +66,10 @@ func runReleaseRun(args: [String], format: OutputFormat) {
                 profile: profileContext.profile,
                 environment: signingContext.environment,
                 stage: stage,
-                allowSigningWrite: allowSigningWrite
+                allowSigningWrite: allowSigningWrite,
+                releasePolicy: releasePolicyContext.policy,
+                screenshotPlanPath: screenshotPlanContext?.path,
+                screenshotPlan: screenshotPlanContext?.plan
             )
         )
 

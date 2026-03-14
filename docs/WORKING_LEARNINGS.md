@@ -9,7 +9,7 @@ This file is the short reference for continuing BOS v2 work without re-learning 
 ### 1. Path policy is already decided
 
 - Commit-safe canonical inputs live outside `.bos/`.
-- Use:
+- For a BOS-managed app project, use:
   - `bos.project.yaml`
   - `config/bos.profile.yaml`
   - `config/blueprint.lock.yaml`
@@ -18,6 +18,7 @@ This file is the short reference for continuing BOS v2 work without re-learning 
   - `.bos/state/bos.state.yaml`
   - `.bos/artifacts/**`
 - Legacy `.bos/config/profile.yaml`, `.bos/plan/blueprint.yaml`, `.bos/config/signing.env` are compatibility reads only.
+- The BOS source repository is tool-source-only. Keep managed-project examples under `bos_blueprint/examples/` instead of the repo root.
 
 ### 2. `.bos/state` is derived state, not a source of truth
 

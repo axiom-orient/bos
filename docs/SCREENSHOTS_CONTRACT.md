@@ -60,6 +60,12 @@ Rules:
 
 All `bos screenshots` commands must support `--format human|json` and return stable top-level keys.
 
+Current runtime reality:
+
+- `plan`, `compose`, and `validate` are implemented and regression-covered.
+- `capture` uses a real `simctl`-backed simulator adapter.
+- `devices[].platform: device` is schema-valid but not executable in the current capture runtime.
+
 ### `bos screenshots plan`
 
 Purpose:
@@ -138,8 +144,8 @@ JSON payload fields:
 
 ## Non-goals For This Contract Step
 
-- implementing capture orchestration
-- choosing one screenshot compositor backend
+- physical-device screenshot capture
+- locale-driving app orchestration beyond the plan matrix and raw simulator capture boundary
+- choosing a second screenshot compositor backend
 - defining video or animated preview assets
 - mutating profile, blueprint, or metadata state during screenshot work
-

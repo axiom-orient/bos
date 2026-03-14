@@ -10,7 +10,7 @@
 
 ## Fresh-Clone Path
 
-The supported canonical-only path is:
+The supported canonical-only path for a BOS-managed app project is:
 
 1. `bos doctor`
 2. `bos plan --prd ./PRD.md`
@@ -26,6 +26,8 @@ Required canonical/runtime files:
 - `config/blueprint.lock.yaml`
 - `config/screenshots.plan.yaml`
 - `.bos/secrets/signing.env`
+
+The BOS source repository itself does not need to ship those managed-project inputs at its root. Examples belong under `bos_blueprint/examples/`.
 
 ## Legacy Downgrade Rule
 

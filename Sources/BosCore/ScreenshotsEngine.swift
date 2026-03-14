@@ -11,6 +11,8 @@ public enum ScreenshotFailureCode: String, Codable, Sendable, Equatable {
     case validation = "E-SCREENSHOTS-VALIDATION"
     case capture = "E-SCREENSHOTS-CAPTURE"
     case compose = "E-SCREENSHOTS-COMPOSE"
+    case simulator = "E-SCREENSHOTS-SIMULATOR"
+    case unsupported = "E-SCREENSHOTS-UNSUPPORTED"
 }
 
 public struct ScreenshotRequest: Sendable {
@@ -104,7 +106,15 @@ public enum ScreenshotsEngineError: Error {
 }
 
 public struct ScreenshotsEngine: Sendable {
-    public init() {}
+    private let captureAdapter: any ScreenshotCaptureAdapting
+
+    public init() {
+        self.captureAdapter = SimulatorScreenshotAdapter()
+    }
+
+    init(captureAdapter: any ScreenshotCaptureAdapting) {
+        self.captureAdapter = captureAdapter
+    }
 
     public func run(request: ScreenshotRequest) throws -> ScreenshotsResult {
         switch request.subcommand {
@@ -117,6 +127,175 @@ public struct ScreenshotsEngine: Sendable {
         case .validate:
             return try validate(request: request)
         }
+    }
+}
+
+public struct ScreenshotCaptureAsset: Sendable {
+    public let shotID: String
+    public let screenID: String
+    public let locale: String
+    public let outputName: String
+    public let device: ScreenshotPlan.DevicePlan
+
+    public init(
+        shotID: String,
+        screenID: String,
+        locale: String,
+        outputName: String,
+        device: ScreenshotPlan.DevicePlan
+    ) {
+        self.shotID = shotID
+        self.screenID = screenID
+        self.locale = locale
+        self.outputName = outputName
+        self.device = device
+    }
+}
+
+public struct ScreenshotCaptureEvidence: Codable, Sendable, Equatable {
+    public let adapter: String
+    public let runtimeDeviceID: String?
+    public let command: [String]
+
+    public init(adapter: String, runtimeDeviceID: String?, command: [String]) {
+        self.adapter = adapter
+        self.runtimeDeviceID = runtimeDeviceID
+        self.command = command
+    }
+}
+
+public protocol ScreenshotCaptureAdapting: Sendable {
+    func capture(
+        asset: ScreenshotCaptureAsset,
+        outputURL: URL,
+        projectRoot: URL
+    ) throws -> ScreenshotCaptureEvidence
+}
+
+protocol ScreenshotCaptureRunning: Sendable {
+    func run(command: [String], in workingDirectory: URL) throws -> ScreenshotCaptureCommandResult
+}
+
+struct ScreenshotCaptureCommandResult: Sendable, Equatable {
+    let exitCode: Int32
+    let stdout: String
+    let stderr: String
+
+    init(exitCode: Int32, stdout: String = "", stderr: String = "") {
+        self.exitCode = exitCode
+        self.stdout = stdout
+        self.stderr = stderr
+    }
+}
+
+struct ProcessScreenshotCaptureRunner: ScreenshotCaptureRunning {
+    func run(command: [String], in workingDirectory: URL) throws -> ScreenshotCaptureCommandResult {
+        let process = Process()
+        process.currentDirectoryURL = workingDirectory
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = command
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+        process.waitUntilExit()
+
+        return ScreenshotCaptureCommandResult(
+            exitCode: process.terminationStatus,
+            stdout: String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
+            stderr: String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        )
+    }
+}
+
+enum ScreenshotCaptureAdapterError: Error {
+    case unsupportedPlatform(String)
+    case simulatorListFailed(String)
+    case simulatorNotFound(String)
+    case simulatorBootFailed(String)
+    case screenshotFailed(String)
+    case missingOutput(String)
+
+    var failureCode: ScreenshotFailureCode {
+        switch self {
+        case .unsupportedPlatform:
+            return .unsupported
+        case .simulatorListFailed, .simulatorNotFound, .simulatorBootFailed:
+            return .simulator
+        case .screenshotFailed, .missingOutput:
+            return .capture
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .unsupportedPlatform(let detail),
+             .simulatorListFailed(let detail),
+             .simulatorNotFound(let detail),
+             .simulatorBootFailed(let detail),
+             .screenshotFailed(let detail),
+             .missingOutput(let detail):
+            return detail
+        }
+    }
+}
+
+public struct SimulatorScreenshotAdapter: ScreenshotCaptureAdapting, Sendable {
+    private let runner: any ScreenshotCaptureRunning
+
+    init(runner: any ScreenshotCaptureRunning = ProcessScreenshotCaptureRunner()) {
+        self.runner = runner
+    }
+
+    public func capture(
+        asset: ScreenshotCaptureAsset,
+        outputURL: URL,
+        projectRoot: URL
+    ) throws -> ScreenshotCaptureEvidence {
+        guard asset.device.platform == "simulator" else {
+            throw ScreenshotCaptureAdapterError.unsupportedPlatform(
+                "screenshots capture does not support platform `\(asset.device.platform)` for device `\(asset.device.id)`"
+            )
+        }
+
+        let device = try resolveSimulator(named: asset.device.name, projectRoot: projectRoot)
+        if device.state != "Booted" {
+            try runChecked(
+                command: ["xcrun", "simctl", "boot", device.udid],
+                projectRoot: projectRoot,
+                error: .simulatorBootFailed("simulator boot failed for `\(asset.device.name)`")
+            )
+        }
+        try runChecked(
+            command: ["xcrun", "simctl", "bootstatus", device.udid, "-b"],
+            projectRoot: projectRoot,
+            error: .simulatorBootFailed("simulator bootstatus failed for `\(asset.device.name)`")
+        )
+
+        let screenshotCommand = [
+            "xcrun", "simctl", "io", device.udid, "screenshot",
+            outputURL.path(percentEncoded: false)
+        ]
+        try runChecked(
+            command: screenshotCommand,
+            projectRoot: projectRoot,
+            error: .screenshotFailed("simulator screenshot command failed for `\(asset.device.name)`")
+        )
+
+        guard FileManager.default.fileExists(atPath: outputURL.path(percentEncoded: false)) else {
+            throw ScreenshotCaptureAdapterError.missingOutput(
+                "simulator screenshot command did not produce \(outputURL.path(percentEncoded: false))"
+            )
+        }
+
+        return ScreenshotCaptureEvidence(
+            adapter: "simctl",
+            runtimeDeviceID: device.udid,
+            command: screenshotCommand
+        )
     }
 }
 
@@ -153,15 +332,16 @@ private extension ScreenshotsEngine {
         let subcommand: ScreenshotSubcommand
     }
 
-    struct ExpectedAsset: Sendable, Equatable {
+    struct ExpectedAsset: Sendable {
         let shotID: String
         let screenID: String
         let locale: String
-        let deviceID: String
+        let device: ScreenshotPlan.DevicePlan
         let outputName: String
 
         var fileName: String { "\(outputName).png" }
         var identifier: String { "\(shotID):\(locale):\(deviceID)" }
+        var deviceID: String { device.id }
     }
 
     struct AssetManifest: Codable, Sendable {
@@ -170,7 +350,12 @@ private extension ScreenshotsEngine {
             let screenID: String
             let locale: String
             let deviceID: String
+            let deviceName: String
+            let platform: String
             let path: String
+            let captureBackend: String
+            let runtimeDeviceID: String?
+            let command: [String]
         }
 
         let schemaVersion: Int
@@ -208,26 +393,74 @@ private extension ScreenshotsEngine {
         let context = try prepareContext(request: request)
         let assets = expectedAssets(for: context.plan)
         let manifestPath = context.rawRoot.appending(path: "manifest.json")
-        let entries = try assets.map { asset -> AssetManifest.Entry in
+        var entries: [AssetManifest.Entry] = []
+        var failedShots: [String] = []
+        var failureSummaries: [String] = []
+        var failureCodes: [ScreenshotFailureCode] = []
+
+        for asset in assets {
             let path = context.rawRoot
                 .appending(path: asset.locale)
                 .appending(path: asset.deviceID)
                 .appending(path: asset.fileName)
-            try RuntimeSupport.writeFile(to: path, data: placeholderPNGData())
-            return AssetManifest.Entry(
-                shotID: asset.shotID,
-                screenID: asset.screenID,
-                locale: asset.locale,
-                deviceID: asset.deviceID,
-                path: path.path(percentEncoded: false)
-            )
+            do {
+                let evidence = try captureAdapter.capture(
+                    asset: ScreenshotCaptureAsset(
+                        shotID: asset.shotID,
+                        screenID: asset.screenID,
+                        locale: asset.locale,
+                        outputName: asset.outputName,
+                        device: asset.device
+                    ),
+                    outputURL: path,
+                    projectRoot: context.root
+                )
+                entries.append(
+                    AssetManifest.Entry(
+                        shotID: asset.shotID,
+                        screenID: asset.screenID,
+                        locale: asset.locale,
+                        deviceID: asset.deviceID,
+                        deviceName: asset.device.name,
+                        platform: asset.device.platform,
+                        path: path.path(percentEncoded: false),
+                        captureBackend: evidence.adapter,
+                        runtimeDeviceID: evidence.runtimeDeviceID,
+                        command: evidence.command
+                    )
+                )
+            } catch let error as ScreenshotCaptureAdapterError {
+                failedShots.append(asset.identifier)
+                failureSummaries.append(error.summary)
+                failureCodes.append(error.failureCode)
+            }
         }
         try writeJSON(
-            AssetManifest(schemaVersion: 1, generatedAt: RuntimeSupport.isoNow(), entries: entries),
+            AssetManifest(
+                schemaVersion: 1,
+                generatedAt: RuntimeSupport.isoNow(),
+                entries: entries.sorted { $0.path < $1.path }
+            ),
             to: manifestPath
         )
 
         let capturedShots = entries.map(\.path).sorted()
+        if !failedShots.isEmpty {
+            throw try fail(
+                context: context,
+                summary: failureSummaries.first ?? "screenshots capture failed",
+                failureCode: failureCode(for: failureCodes),
+                outputDirectory: context.rawRoot.path(percentEncoded: false),
+                capturedShots: capturedShots,
+                failedShots: failedShots.sorted(),
+                composedFiles: [],
+                missingOutputs: [],
+                unexpectedFiles: [],
+                valid: nil,
+                extraArtifacts: [manifestPath]
+            )
+        }
+
         let summary = "screenshots capture completed (\(capturedShots.count) files)"
         try writeArtifact(
             context: context,
@@ -251,6 +484,7 @@ private extension ScreenshotsEngine {
             defaultLocale: context.plan.defaultLocale,
             summaryReport: context.summary,
             capturedShots: capturedShots,
+            failedShots: [],
             outputDirectory: context.rawRoot.path(percentEncoded: false)
         )
     }
@@ -287,7 +521,13 @@ private extension ScreenshotsEngine {
                     screenID: asset.screenID,
                     locale: asset.locale,
                     deviceID: asset.deviceID,
+                    deviceName: asset.device.name,
+                    platform: asset.device.platform,
                     path: exportPathString
+                    ,
+                    captureBackend: "compose-copy",
+                    runtimeDeviceID: nil,
+                    command: []
                 )
             )
         }
@@ -428,16 +668,18 @@ private extension ScreenshotsEngine {
     }
 
     func expectedAssets(for plan: ScreenshotPlan) -> [ExpectedAsset] {
+        let deviceMap = Dictionary(uniqueKeysWithValues: plan.devices.map { ($0.id, $0) })
         var assets: [ExpectedAsset] = []
         for shot in plan.shots {
             for locale in shot.locales {
                 for deviceID in shot.devices {
+                    guard let device = deviceMap[deviceID] else { continue }
                     assets.append(
                         ExpectedAsset(
                             shotID: shot.id,
                             screenID: shot.screenID,
                             locale: locale,
-                            deviceID: deviceID,
+                            device: device,
                             outputName: shot.outputName
                         )
                     )
@@ -447,6 +689,16 @@ private extension ScreenshotsEngine {
         return assets.sorted { lhs, rhs in
             (lhs.locale, lhs.deviceID, lhs.outputName, lhs.shotID) < (rhs.locale, rhs.deviceID, rhs.outputName, rhs.shotID)
         }
+    }
+
+    func failureCode(for failureCodes: [ScreenshotFailureCode]) -> ScreenshotFailureCode {
+        if failureCodes.contains(.unsupported) {
+            return .unsupported
+        }
+        if failureCodes.contains(.simulator) {
+            return .simulator
+        }
+        return failureCodes.first ?? .capture
     }
 
     func collectUnexpectedFiles(in root: URL, expectedPaths: Set<String>) throws -> [String] {
@@ -616,10 +868,88 @@ private extension ScreenshotsEngine {
         try RuntimeSupport.writeFile(to: path, data: data)
     }
 
-    func placeholderPNGData() throws -> Data {
-        guard let data = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+XG4sAAAAASUVORK5CYII=") else {
-            throw NSError(domain: "ScreenshotsEngine", code: 1, userInfo: [NSLocalizedDescriptionKey: "failed to decode placeholder PNG"])
+}
+
+private extension SimulatorScreenshotAdapter {
+    struct SimctlDevicesResponse: Decodable {
+        let devices: [String: [SimctlDevice]]
+    }
+
+    struct SimctlDevice: Decodable {
+        let udid: String
+        let name: String
+        let state: String
+        let isAvailable: Bool?
+    }
+
+    func resolveSimulator(named name: String, projectRoot: URL) throws -> SimctlDevice {
+        let command = ["xcrun", "simctl", "list", "devices", "available", "-j"]
+        let result = try runner.run(command: command, in: projectRoot)
+        guard result.exitCode == 0 else {
+            throw ScreenshotCaptureAdapterError.simulatorListFailed(
+                "simulator inventory query failed for `\(name)`: \(errorDetail(from: result))"
+            )
         }
-        return data
+
+        let data = Data(result.stdout.utf8)
+        let decoded: SimctlDevicesResponse
+        do {
+            decoded = try JSONDecoder().decode(SimctlDevicesResponse.self, from: data)
+        } catch {
+            throw ScreenshotCaptureAdapterError.simulatorListFailed(
+                "simulator inventory query returned invalid JSON for `\(name)`"
+            )
+        }
+
+        let matches = decoded.devices.values
+            .flatMap { $0 }
+            .filter { ($0.isAvailable ?? true) && $0.name == name }
+            .sorted { lhs, rhs in
+                if lhs.state == rhs.state {
+                    return lhs.udid < rhs.udid
+                }
+                return lhs.state == "Booted"
+            }
+
+        guard let match = matches.first else {
+            throw ScreenshotCaptureAdapterError.simulatorNotFound(
+                "no available simulator named `\(name)`"
+            )
+        }
+        return match
+    }
+
+    func runChecked(
+        command: [String],
+        projectRoot: URL,
+        error: ScreenshotCaptureAdapterError
+    ) throws {
+        let result = try runner.run(command: command, in: projectRoot)
+        guard result.exitCode == 0 else {
+            let message = "\(error.summary): \(errorDetail(from: result))"
+            switch error {
+            case .unsupportedPlatform:
+                throw ScreenshotCaptureAdapterError.unsupportedPlatform(message)
+            case .simulatorListFailed:
+                throw ScreenshotCaptureAdapterError.simulatorListFailed(message)
+            case .simulatorNotFound:
+                throw ScreenshotCaptureAdapterError.simulatorNotFound(message)
+            case .simulatorBootFailed:
+                throw ScreenshotCaptureAdapterError.simulatorBootFailed(message)
+            case .screenshotFailed:
+                throw ScreenshotCaptureAdapterError.screenshotFailed(message)
+            case .missingOutput:
+                throw ScreenshotCaptureAdapterError.missingOutput(message)
+            }
+        }
+    }
+
+    func errorDetail(from result: ScreenshotCaptureCommandResult) -> String {
+        let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !detail.isEmpty {
+            return detail
+        }
+        let stdout = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return stdout.isEmpty ? "exit \(result.exitCode)" : stdout
     }
 }

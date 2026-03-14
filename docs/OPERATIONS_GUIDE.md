@@ -4,6 +4,8 @@
 
 Use this document when you are operating `bos` against a real app project.
 
+This guide is about a BOS-managed app project, not the BOS source repository itself.
+
 This guide answers only four things:
 
 - which files must exist
@@ -15,7 +17,7 @@ This guide answers only four things:
 
 | Path | Purpose | How it appears |
 |---|---|---|
-| `bos.project.yaml` | root sentinel and path registry | committed in the repository root |
+| `bos.project.yaml` | root sentinel and path registry | committed in the managed app-project root |
 | `config/bos.profile.yaml` | non-secret onboarding SSOT | auto-created on first profile-using command |
 | `.bos/secrets/signing.env` | signing and App Store Connect secrets | auto-created by release-scoped commands |
 | `config/blueprint.lock.yaml` | generated scaffold and release input | created by `bos plan` or passed with `--blueprint` |
@@ -29,6 +31,8 @@ Rules:
 - `blueprint.yaml` is usually generated, not handwritten.
 - `config/blueprint.lock.yaml` is the canonical default blueprint path.
 - `.bos/config/profile.yaml`, `.bos/config/signing.env`, and `.bos/plan/blueprint.yaml` are legacy compatibility paths only.
+
+Managed-project examples for the BOS contract live under `bos_blueprint/examples/` in the source repository.
 
 ## Minimal Reference Shapes
 

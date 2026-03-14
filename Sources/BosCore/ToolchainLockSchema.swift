@@ -283,6 +283,9 @@ extension ToolchainLock {
     public static let commandPlan = "plan"
     public static let commandApply = "apply"
     public static let commandVerify = "verify"
+    public static let commandMetadata = "metadata"
+    public static let commandScreenshots = "screenshots"
+    public static let commandDevice = "device"
     public static let commandAppRegister = "app-register"
     public static let commandReleaseInit = "release-init"
     public static let commandReleaseCheck = "release-check"
@@ -294,7 +297,18 @@ extension ToolchainLock {
     }
 
     public static var allCommands: [String] {
-        [commandPlan, commandApply, commandVerify, commandAppRegister, commandReleaseInit, commandReleaseCheck, commandReleaseRun]
+        [
+            commandPlan,
+            commandApply,
+            commandVerify,
+            commandMetadata,
+            commandScreenshots,
+            commandDevice,
+            commandAppRegister,
+            commandReleaseInit,
+            commandReleaseCheck,
+            commandReleaseRun
+        ]
     }
 
     public static func defaultPolicy(tmaPluginRef: TMAPluginRef) throws -> ToolchainLock {
@@ -337,7 +351,7 @@ extension ToolchainLock {
                 ),
                 node: try ToolRequirement(
                     versionRule: nodeRule,
-                    requiredFor: ["metadata", "screenshots"],
+                    requiredFor: [commandMetadata, commandScreenshots],
                     installHints: ["brew install node", "mise use -g node@latest"]
                 ),
                 fastlane: try ToolRequirement(
@@ -352,12 +366,12 @@ extension ToolchainLock {
                 ),
                 devicectl: try ToolRequirement(
                     versionRule: presentRule,
-                    requiredFor: ["device", "screenshots"],
+                    requiredFor: [commandDevice, commandScreenshots],
                     installHints: ["xcode-select --install", "xcrun --find devicectl"]
                 ),
                 simctl: try ToolRequirement(
                     versionRule: presentRule,
-                    requiredFor: ["screenshots", commandVerify],
+                    requiredFor: [commandScreenshots, commandVerify],
                     installHints: ["xcode-select --install", "xcrun --find simctl"]
                 )
             ),

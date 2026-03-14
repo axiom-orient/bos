@@ -16,6 +16,11 @@ struct CLIScreenshotPlanContext {
     let plan: ScreenshotPlan
 }
 
+struct CLIReleasePolicyContext {
+    let path: URL?
+    let policy: ReleasePolicy
+}
+
 struct CLISigningContext {
     let environment: [String: String]
     let note: String?
@@ -92,6 +97,24 @@ func loadScreenshotPlanContext(
     do {
         let plan = try decodeYAMLOrJSON(ScreenshotPlan.self, at: path)
         return CLIScreenshotPlanContext(path: path, plan: plan)
+    } catch {
+        fail(message: "\(error)", command: command, format: format)
+    }
+}
+
+func loadOptionalReleasePolicyContext(
+    raw: String? = nil,
+    projectRoot: URL,
+    command: BosCommand,
+    format: OutputFormat
+) -> CLIReleasePolicyContext {
+    guard let path = resolveOptionalReleasePolicyPath(raw: raw, projectRoot: projectRoot) else {
+        return CLIReleasePolicyContext(path: nil, policy: .defaultPolicy())
+    }
+
+    do {
+        let policy = try decodeYAMLOrJSON(ReleasePolicy.self, at: path)
+        return CLIReleasePolicyContext(path: path, policy: policy)
     } catch {
         fail(message: "\(error)", command: command, format: format)
     }

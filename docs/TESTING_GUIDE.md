@@ -32,8 +32,8 @@ git diff --check
 | release init | [`ReleaseInitEngineIntegrationTests.swift`](../Tests/CoreTests/ReleaseInitEngineIntegrationTests.swift) | fastlane scaffold generation and signing preflight |
 | release readiness | [`ReleaseCheckEngineIntegrationTests.swift`](../Tests/CoreTests/ReleaseCheckEngineIntegrationTests.swift) | mode semantics, external step ordering, redaction, state sync |
 | release execution | [`ReleaseRunEngineIntegrationTests.swift`](../Tests/CoreTests/ReleaseRunEngineIntegrationTests.swift) | `build|beta|release|submit` semantics, signing mode choice, IPA path, failure mapping |
-| screenshots workflow | [`ScreenshotsEngineIntegrationTests.swift`](../Tests/CoreTests/ScreenshotsEngineIntegrationTests.swift) | screenshot plan summary, raw capture materialization, export composition, and coverage validation |
-| device workflow | [`DeviceEngineIntegrationTests.swift`](../Tests/CoreTests/DeviceEngineIntegrationTests.swift) | normalized inventory, register/install/launch/logs flow, and device doctor output |
+| screenshots workflow | [`ScreenshotsEngineIntegrationTests.swift`](../Tests/CoreTests/ScreenshotsEngineIntegrationTests.swift) | screenshot plan summary, simulator-backed capture, failure classification, export composition, and coverage validation |
+| device workflow | [`DeviceEngineIntegrationTests.swift`](../Tests/CoreTests/DeviceEngineIntegrationTests.swift) | normalized inventory, shutdown-simulator boot handling, simulator command routing, explicit unsupported failures, and device doctor output |
 | CLI contract | [`CLIJsonOutputIntegrationTests.swift`](../Tests/CoreTests/CLIJsonOutputIntegrationTests.swift) | parse failures, JSON payload stability, profile/signing template behavior, doctor scope behavior |
 | schemas/state | [`SchemaValidationTests.swift`](../Tests/CoreTests/SchemaValidationTests.swift) | strict schema decode, metadata/screenshot contract validation, and additive state fields |
 | integrity guards | [`RepositoryIntegrityTests.swift`](../Tests/CoreTests/RepositoryIntegrityTests.swift) | markdown link health, packaged resource drift, repo-portable docs contracts |
@@ -79,5 +79,6 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bos verify
 
 - [README](../README.md)
 - [Product Guide](../docs/PRODUCT_GUIDE.md)
+- [Capability Matrix](../docs/CAPABILITY_MATRIX.md)
 - [Operations Guide](../docs/OPERATIONS_GUIDE.md)
 - [Architecture](../docs/ARCHITECTURE.md)

@@ -623,7 +623,8 @@ struct CLIJsonOutputIntegrationTests {
 
         let device = try runBootstrap(
             args: ["device", "list", "--project-root", root.path(percentEncoded: false), "--format", "json"],
-            cwd: root
+            cwd: root,
+            environment: try doctorCoreReadyEnvironment(root: root)
         )
         #expect(device.status == 0)
 
@@ -1112,6 +1113,10 @@ struct CLIJsonOutputIntegrationTests {
         #expect(content.contains("node:"))
         #expect(content.contains("devicectl:"))
         #expect(content.contains("simctl:"))
+        #expect(content.contains("  node:\n"))
+        #expect(content.contains("    - metadata\n    - screenshots"))
+        #expect(content.contains("  devicectl:\n"))
+        #expect(content.contains("    - device\n    - screenshots"))
     }
 
     @Test func doctorIgnoresDeprecatedLockPathAndInitializesConfigLock() throws {
@@ -1360,6 +1365,55 @@ struct CLIJsonOutputIntegrationTests {
         #expect(ascFinding.severity == "required")
         #expect(ascFinding.actualVersion == "0.18.0")
         #expect(!payload.findings.contains(where: { $0.tool == "fastlane" && $0.severity == "required" }))
+    }
+
+    @Test func doctorSupportsMetadataScreenshotsAndDeviceScopesWithStableJSON() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        _ = try writeFakeExecutable(
+            root: root,
+            name: "node",
+            body: """
+            if [ "$1" = "--version" ]; then
+              echo "v20.11.1"
+              exit 0
+            fi
+            exit 64
+            """
+        )
+
+        let sharedEnvironment = try doctorCoreReadyEnvironment(root: root)
+        let cases: [(scope: String, requiredTools: [String])] = [
+            ("metadata", ["node"]),
+            ("screenshots", ["node", "devicectl", "simctl"]),
+            ("device", ["devicectl"])
+        ]
+
+        for item in cases {
+            let result = try runBootstrap(
+                args: [
+                    "doctor",
+                    "--for", item.scope,
+                    "--project-root", root.path(percentEncoded: false),
+                    "--format", "json"
+                ],
+                cwd: root,
+                environment: sharedEnvironment
+            )
+            #expect(result.status == 0, "unexpected exit for scope=\(item.scope)")
+
+            let payload = try JSONDecoder().decode(DoctorCommandPayload.self, from: Data(result.stdout.utf8))
+            #expect(payload.command == "doctor")
+            #expect(payload.status == "success")
+            #expect(payload.scope == item.scope)
+
+            for tool in item.requiredTools {
+                let finding = try #require(payload.findings.first(where: { $0.tool == tool }))
+                #expect(finding.severity == "required")
+                #expect(finding.status == "installed")
+            }
+        }
     }
 
     @Test func ascNamespacePreservesExitCodeAndWritesRedactedArtifacts() throws {
@@ -1685,6 +1739,7 @@ private extension CLIJsonOutputIntegrationTests {
         struct Finding: Decodable {
             let tool: String
             let severity: String
+            let status: String
             let actualVersion: String
             let action: String
             let installCommands: [String]
@@ -1754,10 +1809,16 @@ private extension CLIJsonOutputIntegrationTests {
         timeoutSeconds: TimeInterval = 60
     ) throws -> ProcessResult {
         let fm = FileManager.default
+        let executionRoot = cwd ?? {
+            let root = fm.temporaryDirectory
+                .appendingPathComponent("bos-cli-cwd-\(ProcessInfo.processInfo.globallyUniqueString)", isDirectory: true)
+            try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+            return root
+        }()
         let process = Process()
         process.executableURL = try bootstrapBinaryURL()
         process.arguments = args
-        process.currentDirectoryURL = cwd ?? repositoryRoot()
+        process.currentDirectoryURL = executionRoot
         process.environment = ProcessInfo.processInfo.environment
             .merging(["BOS_AUTO_INSTALL": "0"]) { _, new in new }
             .merging(environment) { _, new in new }
@@ -1776,6 +1837,9 @@ private extension CLIJsonOutputIntegrationTests {
             try? stdoutHandle.close()
             try? stderrHandle.close()
             try? fm.removeItem(at: captureDir)
+            if cwd == nil {
+                try? fm.removeItem(at: executionRoot)
+            }
         }
         process.standardOutput = stdoutHandle
         process.standardError = stderrHandle
@@ -1917,6 +1981,15 @@ private extension CLIJsonOutputIntegrationTests {
             root: root,
             name: "xcrun",
             body: """
+            if [ "$1" = "simctl" ] && [ "$2" = "list" ] && [ "$3" = "devices" ] && [ "$4" = "available" ] && [ "$5" = "-j" ]; then
+              cat <<'JSON'
+            {"devices":{"iOS 18.0":[
+              {"udid":"SIM-123","name":"iPhone 16 Pro Max","state":"Booted","isAvailable":true},
+              {"udid":"SIM-456","name":"iPad Pro 13-inch","state":"Shutdown","isAvailable":true}
+            ]}}
+            JSON
+              exit 0
+            fi
             if [ "$1" = "--find" ] && [ "$2" = "simctl" ]; then
               echo "/Applications/Xcode.app/Contents/Developer/usr/bin/simctl"
               exit 0

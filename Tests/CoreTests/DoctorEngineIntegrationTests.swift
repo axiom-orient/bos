@@ -324,6 +324,96 @@ struct DoctorEngineIntegrationTests {
         #expect(node.severity == DoctorSeverity.recommended)
         #expect(node.status == DoctorFindingStatus.missing)
     }
+
+    @Test func doctorDomainScopesPromoteCurrentDomainToolsToRequired() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let lock = try makePolicy(
+            swiftRule: .init(kind: "semver-range", value: ">=6.0 <7.0"),
+            xcodeRule: .init(kind: "semver-range", value: ">=16.0 <17.0"),
+            tuistRule: .init(kind: "semver-range", value: ">=4.0 <5.0"),
+            rubyRule: .init(kind: "semver-range", value: ">=3.0 <4.0"),
+            bundlerRule: .init(kind: "semver-range", value: ">=2.0 <3.0"),
+            nodeRule: .init(kind: "semver-range", value: ">=20.0 <23.0"),
+            fastlaneRule: .init(kind: "semver-range", value: ">=2.0 <3.0"),
+            ascRule: .init(kind: "semver-range", value: ">=0.1.0"),
+            devicectlRule: .init(kind: "present", value: "present"),
+            simctlRule: .init(kind: "present", value: "present"),
+            swiftRequiredFor: ToolchainLock.allCommands,
+            xcodeRequiredFor: [ToolchainLock.commandVerify, ToolchainLock.commandReleaseRun],
+            tuistRequiredFor: [ToolchainLock.commandApply, ToolchainLock.commandVerify, ToolchainLock.commandReleaseRun],
+            rubyRequiredFor: [ToolchainLock.commandReleaseInit, ToolchainLock.commandReleaseCheck, ToolchainLock.commandReleaseRun],
+            bundlerRequiredFor: [ToolchainLock.commandReleaseInit, ToolchainLock.commandReleaseCheck, ToolchainLock.commandReleaseRun],
+            nodeRequiredFor: [ToolchainLock.commandMetadata, ToolchainLock.commandScreenshots],
+            fastlaneRequiredFor: [ToolchainLock.commandReleaseInit, ToolchainLock.commandReleaseCheck, ToolchainLock.commandReleaseRun],
+            ascRequiredFor: [ToolchainLock.commandAppRegister, ToolchainLock.commandReleaseCheck, ToolchainLock.commandReleaseRun],
+            devicectlRequiredFor: [ToolchainLock.commandDevice, ToolchainLock.commandScreenshots],
+            simctlRequiredFor: [ToolchainLock.commandScreenshots, ToolchainLock.commandVerify]
+        )
+
+        let detected = DetectedToolchain(
+            swift: "6.2",
+            xcode: "16.2",
+            tuist: "4.153.1",
+            ruby: "3.2.2",
+            bundler: "2.5.6",
+            node: "not-found",
+            fastlane: "2.228.0",
+            asc: "0.18.0",
+            devicectl: "not-found",
+            simctl: "not-found",
+            tmaPluginRef: try .init(type: "git-sha", value: "abc"),
+            brewPath: "/opt/homebrew/bin/brew",
+            gitVersion: "2.50.1"
+        )
+
+        let metadata = try engine.check(
+            request: DoctorRequest(
+                projectRoot: root,
+                lock: lock,
+                detected: detected,
+                checkCommands: [ToolchainLock.commandMetadata]
+            )
+        )
+        #expect(metadata.status == "failed")
+        let metadataNode = try #require(metadata.findings.first(where: { $0.tool == "node" }))
+        #expect(metadataNode.severity == DoctorSeverity.required)
+        #expect(metadataNode.status == DoctorFindingStatus.missing)
+        let metadataDevicectl = try #require(metadata.findings.first(where: { $0.tool == "devicectl" }))
+        #expect(metadataDevicectl.severity == DoctorSeverity.recommended)
+
+        let screenshots = try engine.check(
+            request: DoctorRequest(
+                projectRoot: root,
+                lock: lock,
+                detected: detected,
+                checkCommands: [ToolchainLock.commandScreenshots]
+            )
+        )
+        #expect(screenshots.status == "failed")
+        let screenshotsNode = try #require(screenshots.findings.first(where: { $0.tool == "node" }))
+        #expect(screenshotsNode.severity == DoctorSeverity.required)
+        let screenshotsDevicectl = try #require(screenshots.findings.first(where: { $0.tool == "devicectl" }))
+        #expect(screenshotsDevicectl.severity == DoctorSeverity.required)
+        let screenshotsSimctl = try #require(screenshots.findings.first(where: { $0.tool == "simctl" }))
+        #expect(screenshotsSimctl.severity == DoctorSeverity.required)
+
+        let device = try engine.check(
+            request: DoctorRequest(
+                projectRoot: root,
+                lock: lock,
+                detected: detected,
+                checkCommands: [ToolchainLock.commandDevice]
+            )
+        )
+        #expect(device.status == "failed")
+        let deviceDevicectl = try #require(device.findings.first(where: { $0.tool == "devicectl" }))
+        #expect(deviceDevicectl.severity == DoctorSeverity.required)
+        #expect(deviceDevicectl.status == DoctorFindingStatus.missing)
+        let deviceNode = try #require(device.findings.first(where: { $0.tool == "node" }))
+        #expect(deviceNode.severity == DoctorSeverity.recommended)
+    }
 }
 
 private extension DoctorEngineIntegrationTests {

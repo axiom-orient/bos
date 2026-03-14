@@ -21,14 +21,22 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bos verify
 
 If you already have a blueprint, skip `plan` and pass `--blueprint` when needed.
 
-## Runtime Files
+## Source Repo Policy
+
+This repository is the BOS source codebase, not a BOS-managed app project root.
+
+- Managed-project example inputs live under [`bos_blueprint/examples/`](bos_blueprint/examples).
+- The source repo itself only needs repository-owned files such as `config/toolchain.lock.yaml`.
+- Do not treat the repository root as if it were a fully configured app workspace with committed `bos.project.yaml`, `config/bos.profile.yaml`, `config/blueprint.lock.yaml`, or screenshot/release inputs.
+
+## Managed Project Files
 
 | Path | Role | Type |
 |---|---|---|
 | `PLAN/` | planning input | human input |
-| `bos.project.yaml` | root sentinel and path registry | committed input |
-| `config/blueprint.lock.yaml` | generated scaffold/release input | committed input |
-| `config/bos.profile.yaml` | non-secret onboarding SSOT | committed input |
+| `bos.project.yaml` | root sentinel and path registry | committed input in a BOS-managed app project |
+| `config/blueprint.lock.yaml` | generated scaffold/release input | committed input in a BOS-managed app project |
+| `config/bos.profile.yaml` | non-secret onboarding SSOT | committed input in a BOS-managed app project |
 | `.bos/secrets/signing.env` | signing and App Store Connect secrets | local secret input |
 | `config/toolchain.lock.yaml` | local toolchain policy | runtime metadata |
 | `.bos/state/bos.state.yaml` | last command summary | runtime state |
@@ -37,6 +45,7 @@ If you already have a blueprint, skip `plan` and pass `--blueprint` when needed.
 Rules:
 
 - Canonical v2 inputs live outside `.bos/`.
+- This source repository keeps managed-project examples under `bos_blueprint/examples/` instead of pretending the repo root is an app project.
 - Legacy `.bos/config/profile.yaml` and `.bos/plan/blueprint.yaml` reads are compatibility behavior only.
 - Keep `MATCH_GIT_URL` in `config/bos.profile.yaml`, not in `signing.env`.
 - Treat `.bos/artifacts/` as disposable runtime output, not as project documentation.
@@ -58,10 +67,18 @@ Rules:
 | `bos release-check` | validate live release readiness |
 | `bos release-run` | build, upload, or submit signed artifacts |
 
+Current maturity:
+
+- `bos screenshots capture` is real, but simulator-first.
+- `bos device list|install|launch` are simulator-backed; `install` and `launch` will boot a listed shutdown simulator and wait for readiness before executing.
+- `bos device register` and `bos device logs` fail explicitly as unsupported today.
+- The current product truth is tracked in [Capability Matrix](docs/CAPABILITY_MATRIX.md).
+
 ## Docs By Audience
 
 - [AGENTS.md](AGENTS.md): repo-specific agent reading order and required metadata
 - [Product Guide](docs/PRODUCT_GUIDE.md): public command contract
+- [Capability Matrix](docs/CAPABILITY_MATRIX.md): current maturity by domain and sub-surface
 - [Operations Guide](docs/OPERATIONS_GUIDE.md): operator runbook and file examples
 - [Architecture](docs/ARCHITECTURE.md): maintainer structure map
 - [Testing Guide](docs/TESTING_GUIDE.md): regression and release validation

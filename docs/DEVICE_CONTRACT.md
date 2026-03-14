@@ -20,14 +20,23 @@ Each record must include:
 
 Rules:
 
-- Simulator and physical devices stay in the same inventory, but `kind` must make the boundary explicit.
-- `register` is only for physical-device registration intent and must not mutate simulator records.
-- `install`, `launch`, and `logs` may target either kind when the underlying adapter supports it.
-- `doctor` reports tool/runtime readiness for the device workflow without overlapping release readiness semantics.
+- Simulator and physical devices stay in the same inventory model, but the current default runtime only enumerates available simulators.
+- `register` is reserved for future physical-device registration intent and does not succeed today.
+- `install` and `launch` currently support simulator targets only, and the runtime will boot a listed shutdown simulator before executing them.
+- `logs` is intentionally unsupported until BOS has a normalized process/log selection contract.
+- `doctor` reports simulator readiness plus current physical-device/runtime gaps without overlapping release readiness semantics.
 
 ## Command Shape
 
 All `bos device` commands must support `--format human|json` and return stable top-level keys.
+
+Current runtime reality:
+
+- `list` uses real `simctl` inventory for available simulators.
+- `install` and `launch` use real `simctl` commands for simulator target IDs.
+- if a listed simulator is still `shutdown`, BOS boots it and waits for `bootstatus -b` before `install` or `launch`.
+- `register` and `logs` return explicit unsupported failures in the current runtime.
+- physical-device execution paths are not implemented yet, even though the normalized schema keeps room for them.
 
 ### `bos device list`
 
@@ -64,6 +73,7 @@ JSON payload fields:
 Purpose:
 
 - install an app bundle or app artifact onto a target device
+- for simulator targets, boot a listed shutdown device first if needed
 
 JSON payload fields:
 
@@ -80,6 +90,7 @@ JSON payload fields:
 Purpose:
 
 - launch a bundle identifier on the target device
+- for simulator targets, boot a listed shutdown device first if needed
 
 JSON payload fields:
 

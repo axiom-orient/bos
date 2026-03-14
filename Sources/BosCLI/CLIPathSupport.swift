@@ -10,6 +10,7 @@ private struct ProjectPathRegistry {
     let legacyProfilePath: URL
     let blueprintLockPath: URL
     let legacyBlueprintPath: URL
+    let releasePolicyPath: URL
     let screenshotsPlanPath: URL
     let signingEnvPath: URL
     let legacySigningEnvPath: URL
@@ -34,6 +35,7 @@ private func pathRegistry(projectRoot: URL) -> ProjectPathRegistry {
             legacyProfilePath: root.appending(path: ".bos/config/profile.yaml"),
             blueprintLockPath: resolvePath(manifest.paths.blueprintLock, base: root),
             legacyBlueprintPath: root.appending(path: ".bos/plan/blueprint.yaml"),
+            releasePolicyPath: resolvePath(manifest.paths.releasePolicy, base: root),
             screenshotsPlanPath: resolvePath(manifest.paths.screenshotsPlan, base: root),
             signingEnvPath: resolvePath(manifest.paths.signingEnv, base: root),
             legacySigningEnvPath: root.appending(path: ".bos/config/signing.env"),
@@ -46,6 +48,7 @@ private func pathRegistry(projectRoot: URL) -> ProjectPathRegistry {
         legacyProfilePath: root.appending(path: ".bos/config/profile.yaml"),
         blueprintLockPath: root.appending(path: "config/blueprint.lock.yaml"),
         legacyBlueprintPath: root.appending(path: ".bos/plan/blueprint.yaml"),
+        releasePolicyPath: root.appending(path: "config/release.policy.yaml"),
         screenshotsPlanPath: root.appending(path: "config/screenshots.plan.yaml"),
         signingEnvPath: root.appending(path: ".bos/secrets/signing.env"),
         legacySigningEnvPath: root.appending(path: ".bos/config/signing.env"),
@@ -226,6 +229,22 @@ func resolveToolchainLockPath(projectRoot: URL) -> URL? {
 
 func defaultScreenshotsPlanPath(projectRoot: URL) -> URL {
     pathRegistry(projectRoot: projectRoot).screenshotsPlanPath
+}
+
+func defaultReleasePolicyPath(projectRoot: URL) -> URL {
+    pathRegistry(projectRoot: projectRoot).releasePolicyPath
+}
+
+func resolveOptionalReleasePolicyPath(raw: String?, projectRoot: URL) -> URL? {
+    if let raw {
+        return resolvePath(raw, base: projectRoot)
+    }
+
+    let path = defaultReleasePolicyPath(projectRoot: projectRoot)
+    if FileManager.default.fileExists(atPath: path.path(percentEncoded: false)) {
+        return path
+    }
+    return nil
 }
 
 func resolveScreenshotsPlanPathOrFail(

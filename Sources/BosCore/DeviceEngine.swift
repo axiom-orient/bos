@@ -12,6 +12,7 @@ public enum DeviceSubcommand: String, Codable, Sendable, CaseIterable {
 public enum DeviceFailureCode: String, Codable, Sendable, Equatable {
     case validation = "E-DEVICE-VALIDATION"
     case execution = "E-DEVICE-EXECUTION"
+    case unsupported = "E-DEVICE-UNSUPPORTED"
 }
 
 public struct DeviceRequest: Sendable {
@@ -85,24 +86,153 @@ public enum DeviceEngineError: Error {
 }
 
 public protocol DeviceRunning: Sendable {
-    func listDevices() throws -> [DeviceRecord]
-    func register(deviceID: String, name: String?) throws
-    func install(deviceID: String, appPath: String) throws
-    func launch(deviceID: String, bundleIdentifier: String) throws
-    func logs(deviceID: String) throws -> [String]
-    func doctor() throws -> DeviceDoctorReport
+    func listDevices(projectRoot: URL) throws -> [DeviceRecord]
+    func register(deviceID: String, name: String?, projectRoot: URL) throws
+    func install(deviceID: String, appPath: String, projectRoot: URL) throws
+    func launch(deviceID: String, bundleIdentifier: String, projectRoot: URL) throws
+    func logs(deviceID: String, projectRoot: URL) throws -> [String]
+    func doctor(projectRoot: URL) throws -> DeviceDoctorReport
+}
+
+protocol DeviceCommandRunning: Sendable {
+    func run(command: [String], in workingDirectory: URL) throws -> DeviceCommandResult
+}
+
+struct DeviceCommandResult: Sendable, Equatable {
+    let exitCode: Int32
+    let stdout: String
+    let stderr: String
+
+    init(exitCode: Int32, stdout: String = "", stderr: String = "") {
+        self.exitCode = exitCode
+        self.stdout = stdout
+        self.stderr = stderr
+    }
+}
+
+struct ProcessDeviceCommandRunner: DeviceCommandRunning {
+    func run(command: [String], in workingDirectory: URL) throws -> DeviceCommandResult {
+        let process = Process()
+        process.currentDirectoryURL = workingDirectory
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = command
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+        process.waitUntilExit()
+
+        return DeviceCommandResult(
+            exitCode: process.terminationStatus,
+            stdout: String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
+            stderr: String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        )
+    }
+}
+
+enum DeviceRunnerError: Error {
+    case unsupported(String)
+    case execution(String)
+
+    var failureCode: DeviceFailureCode {
+        switch self {
+        case .unsupported:
+            return .unsupported
+        case .execution:
+            return .execution
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .unsupported(let summary), .execution(let summary):
+            return summary
+        }
+    }
 }
 
 public struct ProcessDeviceRunner: DeviceRunning {
-    public init() {}
+    private let commandRunner: any DeviceCommandRunning
 
-    public func listDevices() throws -> [DeviceRecord] { [] }
-    public func register(deviceID: String, name: String?) throws {}
-    public func install(deviceID: String, appPath: String) throws {}
-    public func launch(deviceID: String, bundleIdentifier: String) throws {}
-    public func logs(deviceID: String) throws -> [String] { [] }
-    public func doctor() throws -> DeviceDoctorReport {
-        DeviceDoctorReport(healthy: true, findings: [])
+    public init() {
+        self.commandRunner = ProcessDeviceCommandRunner()
+    }
+
+    init(commandRunner: any DeviceCommandRunning) {
+        self.commandRunner = commandRunner
+    }
+
+    public func listDevices(projectRoot: URL) throws -> [DeviceRecord] {
+        try availableSimulators(projectRoot: projectRoot)
+    }
+
+    public func register(deviceID: String, name: String?, projectRoot: URL) throws {
+        throw DeviceRunnerError.unsupported(
+            "device register is not supported by the current runtime; pair and trust devices outside BOS"
+        )
+    }
+
+    public func install(deviceID: String, appPath: String, projectRoot: URL) throws {
+        let simulator = try requireSimulator(deviceID: deviceID, projectRoot: projectRoot)
+        try ensureBooted(simulator: simulator, projectRoot: projectRoot)
+        let result = try commandRunner.run(
+            command: ["xcrun", "simctl", "install", deviceID, appPath],
+            in: projectRoot
+        )
+        guard result.exitCode == 0 else {
+            throw DeviceRunnerError.execution("device install failed: \(detail(from: result))")
+        }
+    }
+
+    public func launch(deviceID: String, bundleIdentifier: String, projectRoot: URL) throws {
+        let simulator = try requireSimulator(deviceID: deviceID, projectRoot: projectRoot)
+        try ensureBooted(simulator: simulator, projectRoot: projectRoot)
+        let result = try commandRunner.run(
+            command: ["xcrun", "simctl", "launch", deviceID, bundleIdentifier],
+            in: projectRoot
+        )
+        guard result.exitCode == 0 else {
+            throw DeviceRunnerError.execution("device launch failed: \(detail(from: result))")
+        }
+    }
+
+    public func logs(deviceID: String, projectRoot: URL) throws -> [String] {
+        throw DeviceRunnerError.unsupported(
+            "device logs is not supported by the current runtime; use Console.app or simulator tooling directly"
+        )
+    }
+
+    public func doctor(projectRoot: URL) throws -> DeviceDoctorReport {
+        var findings: [String] = []
+        let simulators: [DeviceRecord]
+        do {
+            simulators = try availableSimulators(projectRoot: projectRoot)
+        } catch let error as DeviceRunnerError {
+            findings.append(error.summary)
+            return DeviceDoctorReport(healthy: false, findings: findings)
+        }
+
+        if simulators.isEmpty {
+            findings.append("no available simulators found via simctl")
+        }
+
+        let devicectl = try commandRunner.run(
+            command: ["xcrun", "--find", "devicectl"],
+            in: projectRoot
+        )
+        if devicectl.exitCode != 0 {
+            findings.append("physical device actions remain unsupported because devicectl is unavailable")
+        } else {
+            findings.append("physical device register/logs remain unsupported in the current runtime")
+        }
+
+        return DeviceDoctorReport(
+            healthy: !simulators.isEmpty,
+            findings: findings
+        )
     }
 }
 
@@ -157,7 +287,16 @@ private extension DeviceEngine {
 
     func list(request: DeviceRequest) throws -> DeviceResult {
         let context = try prepareContext(request: request)
-        let devices = try runner.listDevices().sorted { $0.id < $1.id }
+        let devices: [DeviceRecord]
+        do {
+            devices = try runner.listDevices(projectRoot: context.root).sorted { $0.id < $1.id }
+        } catch let error as DeviceRunnerError {
+            throw try fail(
+                context: context,
+                summary: error.summary,
+                failureCode: error.failureCode
+            )
+        }
         let summary = "device list returned \(devices.count) device(s)"
         try writeArtifact(context: context, status: "success", exitCode: 0, summary: summary, devices: devices)
         return DeviceResult(artifacts: context.artifacts, summary: summary, devices: devices)
@@ -168,7 +307,12 @@ private extension DeviceEngine {
         guard let deviceID = request.deviceID, !deviceID.isEmpty else {
             throw try fail(context: context, summary: "device register requires --device-id", targetDevice: request.deviceID)
         }
-        try runner.register(deviceID: deviceID, name: request.name)
+        try performRunnerAction(
+            context: context,
+            targetDevice: deviceID
+        ) {
+            try runner.register(deviceID: deviceID, name: request.name, projectRoot: context.root)
+        }
         let summary = "device register completed for \(deviceID)"
         try writeArtifact(context: context, status: "success", exitCode: 0, summary: summary, targetDevice: deviceID)
         return DeviceResult(artifacts: context.artifacts, summary: summary, targetDevice: deviceID)
@@ -182,7 +326,13 @@ private extension DeviceEngine {
         guard let appPath = request.appPath, !appPath.isEmpty else {
             throw try fail(context: context, summary: "device install requires --app", targetDevice: deviceID)
         }
-        try runner.install(deviceID: deviceID, appPath: appPath)
+        try performRunnerAction(
+            context: context,
+            targetDevice: deviceID,
+            appPath: appPath
+        ) {
+            try runner.install(deviceID: deviceID, appPath: appPath, projectRoot: context.root)
+        }
         let summary = "device install completed for \(deviceID)"
         try writeArtifact(context: context, status: "success", exitCode: 0, summary: summary, targetDevice: deviceID, appPath: appPath)
         return DeviceResult(artifacts: context.artifacts, summary: summary, targetDevice: deviceID, appPath: appPath)
@@ -196,7 +346,13 @@ private extension DeviceEngine {
         guard let bundleIdentifier = request.bundleIdentifier, !bundleIdentifier.isEmpty else {
             throw try fail(context: context, summary: "device launch requires --bundle-id", targetDevice: deviceID)
         }
-        try runner.launch(deviceID: deviceID, bundleIdentifier: bundleIdentifier)
+        try performRunnerAction(
+            context: context,
+            targetDevice: deviceID,
+            bundleIdentifier: bundleIdentifier
+        ) {
+            try runner.launch(deviceID: deviceID, bundleIdentifier: bundleIdentifier, projectRoot: context.root)
+        }
         let summary = "device launch completed for \(deviceID)"
         try writeArtifact(
             context: context,
@@ -219,7 +375,17 @@ private extension DeviceEngine {
         guard let deviceID = request.deviceID, !deviceID.isEmpty else {
             throw try fail(context: context, summary: "device logs requires --device-id", targetDevice: request.deviceID)
         }
-        let logLines = try runner.logs(deviceID: deviceID)
+        let logLines: [String]
+        do {
+            logLines = try runner.logs(deviceID: deviceID, projectRoot: context.root)
+        } catch let error as DeviceRunnerError {
+            throw try fail(
+                context: context,
+                summary: error.summary,
+                failureCode: error.failureCode,
+                targetDevice: deviceID
+            )
+        }
         let summary = "device logs collected for \(deviceID)"
         try writeArtifact(
             context: context,
@@ -234,7 +400,16 @@ private extension DeviceEngine {
 
     func doctor(request: DeviceRequest) throws -> DeviceResult {
         let context = try prepareContext(request: request)
-        let report = try runner.doctor()
+        let report: DeviceDoctorReport
+        do {
+            report = try runner.doctor(projectRoot: context.root)
+        } catch let error as DeviceRunnerError {
+            throw try fail(
+                context: context,
+                summary: error.summary,
+                failureCode: error.failureCode
+            )
+        }
         let summary = report.healthy ? "device doctor passed" : "device doctor found issues"
         try writeArtifact(
             context: context,
@@ -268,9 +443,31 @@ private extension DeviceEngine {
         return Context(root: root, bundle: bundle, artifacts: bundle.artifacts, subcommand: request.subcommand)
     }
 
+    func performRunnerAction(
+        context: Context,
+        targetDevice: String? = nil,
+        appPath: String? = nil,
+        bundleIdentifier: String? = nil,
+        _ operation: () throws -> Void
+    ) throws {
+        do {
+            try operation()
+        } catch let error as DeviceRunnerError {
+            throw try fail(
+                context: context,
+                summary: error.summary,
+                failureCode: error.failureCode,
+                targetDevice: targetDevice,
+                appPath: appPath,
+                bundleIdentifier: bundleIdentifier
+            )
+        }
+    }
+
     func fail(
         context: Context,
         summary: String,
+        failureCode: DeviceFailureCode = .validation,
         devices: [DeviceRecord] = [],
         targetDevice: String? = nil,
         appPath: String? = nil,
@@ -289,10 +486,10 @@ private extension DeviceEngine {
             bundleIdentifier: bundleIdentifier,
             logLines: logLines,
             findings: findings,
-            failureCode: .validation
+            failureCode: failureCode
         )
         return DeviceEngineError.failed(
-            classification: .validation,
+            classification: failureCode,
             summary: summary,
             artifacts: context.artifacts,
             devices: devices,
@@ -372,5 +569,96 @@ private extension DeviceEngine {
             lines.append("findings=\(findings.joined(separator: "|"))")
         }
         return lines.joined(separator: "\n") + "\n"
+    }
+}
+
+private extension ProcessDeviceRunner {
+    struct SimctlDevicesResponse: Decodable {
+        let devices: [String: [SimctlDevice]]
+    }
+
+    struct SimctlDevice: Decodable {
+        let udid: String
+        let name: String
+        let state: String
+        let isAvailable: Bool?
+    }
+
+    func availableSimulators(projectRoot: URL) throws -> [DeviceRecord] {
+        let result = try commandRunner.run(
+            command: ["xcrun", "simctl", "list", "devices", "available", "-j"],
+            in: projectRoot
+        )
+        guard result.exitCode == 0 else {
+            throw DeviceRunnerError.execution("simctl device inventory failed: \(detail(from: result))")
+        }
+
+        let decoded: SimctlDevicesResponse
+        do {
+            decoded = try JSONDecoder().decode(SimctlDevicesResponse.self, from: Data(result.stdout.utf8))
+        } catch {
+            throw DeviceRunnerError.execution("simctl device inventory returned invalid JSON")
+        }
+
+        return try decoded.devices
+            .flatMap { runtime, devices in
+                devices.map { (runtime, $0) }
+            }
+            .filter { _, device in device.isAvailable ?? true }
+            .map { runtime, device in
+                try DeviceRecord(
+                    id: device.udid,
+                    name: device.name,
+                    kind: "simulator",
+                    platform: "iOS",
+                    state: device.state.lowercased(),
+                    runtime: runtime,
+                    isAvailable: device.isAvailable ?? true
+                )
+            }
+            .sorted { $0.id < $1.id }
+    }
+
+    func requireSimulator(deviceID: String, projectRoot: URL) throws -> DeviceRecord {
+        let simulators = try availableSimulators(projectRoot: projectRoot)
+        guard let device = simulators.first(where: { $0.id == deviceID }) else {
+            throw DeviceRunnerError.unsupported(
+                "device `\(deviceID)` is not an available simulator in the current runtime"
+            )
+        }
+        return device
+    }
+
+    func ensureBooted(simulator: DeviceRecord, projectRoot: URL) throws {
+        if simulator.state != "booted" {
+            let boot = try commandRunner.run(
+                command: ["xcrun", "simctl", "boot", simulator.id],
+                in: projectRoot
+            )
+            guard boot.exitCode == 0 else {
+                throw DeviceRunnerError.execution(
+                    "simulator boot failed for `\(simulator.name)`: \(detail(from: boot))"
+                )
+            }
+        }
+
+        let bootstatus = try commandRunner.run(
+            command: ["xcrun", "simctl", "bootstatus", simulator.id, "-b"],
+            in: projectRoot
+        )
+        guard bootstatus.exitCode == 0 else {
+            throw DeviceRunnerError.execution(
+                "simulator bootstatus failed for `\(simulator.name)`: \(detail(from: bootstatus))"
+            )
+        }
+    }
+
+    func detail(from result: DeviceCommandResult) -> String {
+        let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !stderr.isEmpty {
+            return stderr
+        }
+        let stdout = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return stdout.isEmpty ? "exit \(result.exitCode)" : stdout
     }
 }

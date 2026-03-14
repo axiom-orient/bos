@@ -16,11 +16,11 @@ Define the compatibility contract for the BOS v2 migration so path changes, file
 
 | Concern | Canonical v2 path | Legacy compatibility path | Commit policy | Migration rule |
 |---|---|---|---|---|
-| Project sentinel | `bos.project.yaml` | none | committed | Required for v2 path discovery |
-| Profile SSOT | `config/bos.profile.yaml` | `.bos/config/profile.yaml` | committed | Read legacy during compatibility window; write canonical path |
-| Blueprint lock | `config/blueprint.lock.yaml` | `.bos/plan/blueprint.yaml` | committed | Read legacy during compatibility window; generate canonical path |
-| Release policy | `config/release.policy.yaml` | none | committed | New v2-only file |
-| Screenshot plan | `config/screenshots.plan.yaml` | none | committed | New v2-only file |
+| Project sentinel | `bos.project.yaml` | none | committed in a BOS-managed app project | Required for v2 path discovery |
+| Profile SSOT | `config/bos.profile.yaml` | `.bos/config/profile.yaml` | committed in a BOS-managed app project | Read legacy during compatibility window; write canonical path |
+| Blueprint lock | `config/blueprint.lock.yaml` | `.bos/plan/blueprint.yaml` | committed in a BOS-managed app project | Read legacy during compatibility window; generate canonical path |
+| Release policy | `config/release.policy.yaml` | none | committed in a BOS-managed app project | New v2-only file |
+| Screenshot plan | `config/screenshots.plan.yaml` | none | committed in a BOS-managed app project | New v2-only file |
 | Signing secrets | `.bos/secrets/signing.env` | `.bos/config/signing.env` | local only | Read legacy during compatibility window; write canonical secret path |
 | Runtime state | `.bos/state/bos.state.yaml` | none | local only | Runtime-owned only |
 | Runtime artifacts | `.bos/artifacts/**` | none | local only | Runtime-owned only |
@@ -49,7 +49,15 @@ The migration uses one explicit compatibility window:
 
 ## Required Proof Before Leaving The Compatibility Window
 
-- A fresh clone works with only `bos.project.yaml` and canonical v2 config files.
+- A fresh clone of a BOS-managed app project works with only `bos.project.yaml` and canonical v2 config files.
 - CLI tests prove canonical-first resolution and legacy fallback behavior.
 - `.gitignore` matches the documented commit policy.
 - Docs and examples contain no legacy-only default paths unless explicitly labeled as migration behavior.
+
+## Source Repo Rule
+
+The BOS source repository is not itself the canonical example of a managed app-project root.
+
+- Keep source-repo-owned policy files such as `config/toolchain.lock.yaml` at the repository root.
+- Keep managed-project examples under `bos_blueprint/examples/` or another explicit examples location.
+- Do not require the source repo root to carry committed `bos.project.yaml`, profile, blueprint, release-policy, or screenshot-plan inputs just to document the product contract.

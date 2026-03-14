@@ -1,8 +1,8 @@
 schemaVersion: 1
-signing:
-  readinessMode: readonly-certs
-  allowWriteBootstrap: false
-distribution:
-  stages: [build, beta, release, submit]
-artifacts:
-  keepDays: 14
+submitRequirements:
+  metadataValidation: true
+  screenshotsValidation: true
+defaultSigningMode: readonly-certs
+releaseAutomation: manual
+requiredLocales:
+  - en-US

@@ -17,6 +17,8 @@ public enum ReleaseRunFailureCode: String, Codable, Sendable, Equatable {
 }
 
 public enum ReleaseRunStep: String, Codable, Sendable, Equatable {
+    case metadataValidate = "metadata-validate"
+    case screenshotsValidate = "screenshots-validate"
     case releaseInit = "release-init"
     case releaseCheck = "release-check"
     case tuistInstall = "tuist-install"
@@ -57,6 +59,9 @@ public struct ReleaseRunRequest: Sendable {
     public let environment: [String: String]
     public let stage: ReleaseRunStage
     public let allowSigningWrite: Bool
+    public let releasePolicy: ReleasePolicy
+    public let screenshotPlanPath: URL?
+    public let screenshotPlan: ScreenshotPlan?
 
     public init(
         projectRoot: URL,
@@ -64,7 +69,10 @@ public struct ReleaseRunRequest: Sendable {
         profile: Profile,
         environment: [String: String],
         stage: ReleaseRunStage,
-        allowSigningWrite: Bool = false
+        allowSigningWrite: Bool = false,
+        releasePolicy: ReleasePolicy = .defaultPolicy(),
+        screenshotPlanPath: URL? = nil,
+        screenshotPlan: ScreenshotPlan? = nil
     ) {
         self.projectRoot = projectRoot
         self.blueprint = blueprint
@@ -72,6 +80,9 @@ public struct ReleaseRunRequest: Sendable {
         self.environment = environment
         self.stage = stage
         self.allowSigningWrite = allowSigningWrite
+        self.releasePolicy = releasePolicy
+        self.screenshotPlanPath = screenshotPlanPath
+        self.screenshotPlan = screenshotPlan
     }
 }
 
@@ -104,19 +115,91 @@ public enum ReleaseRunEngineError: Error, Equatable {
     )
 }
 
+public protocol ReleaseRunMetadataValidating: Sendable {
+    func validate(projectRoot: URL, profile: Profile, environment: [String: String]) throws -> String
+}
+
+public protocol ReleaseRunScreenshotsValidating: Sendable {
+    func validate(projectRoot: URL, planPath: URL, plan: ScreenshotPlan) throws -> String
+}
+
+struct ReleaseRunValidationFailure: Error {
+    let summary: String
+}
+
+public struct LiveReleaseRunMetadataValidator: ReleaseRunMetadataValidating {
+    private let engine: MetadataEngine
+
+    public init(engine: MetadataEngine = .init()) {
+        self.engine = engine
+    }
+
+    public func validate(projectRoot: URL, profile: Profile, environment: [String: String]) throws -> String {
+        do {
+            let result = try engine.run(
+                request: MetadataRequest(
+                    projectRoot: projectRoot,
+                    profile: profile,
+                    environment: environment,
+                    subcommand: .validate
+                )
+            )
+            return result.summary
+        } catch let error as MetadataEngineError {
+            switch error {
+            case .failed(_, let summary, _, _, _, _):
+                throw ReleaseRunValidationFailure(summary: summary)
+            }
+        }
+    }
+}
+
+public struct LiveReleaseRunScreenshotsValidator: ReleaseRunScreenshotsValidating {
+    private let engine: ScreenshotsEngine
+
+    public init(engine: ScreenshotsEngine = .init()) {
+        self.engine = engine
+    }
+
+    public func validate(projectRoot: URL, planPath: URL, plan: ScreenshotPlan) throws -> String {
+        do {
+            let result = try engine.run(
+                request: ScreenshotRequest(
+                    projectRoot: projectRoot,
+                    planPath: planPath,
+                    plan: plan,
+                    subcommand: .validate
+                )
+            )
+            return result.summary
+        } catch let error as ScreenshotsEngineError {
+            switch error {
+            case .failed(_, let summary, _, _, _, _, _, _, _, _, _):
+                throw ReleaseRunValidationFailure(summary: summary)
+            }
+        }
+    }
+}
+
 public struct ReleaseRunEngine: Sendable {
     private let runner: any ReleaseRunCommandRunning
     private let releaseChecker: any ReleaseCheckPerforming
     private let releaseInitEngine: ReleaseInitEngine
+    private let metadataValidator: any ReleaseRunMetadataValidating
+    private let screenshotsValidator: any ReleaseRunScreenshotsValidating
 
     public init(
         runner: any ReleaseRunCommandRunning,
         releaseChecker: any ReleaseCheckPerforming,
-        releaseInitEngine: ReleaseInitEngine = .init()
+        releaseInitEngine: ReleaseInitEngine = .init(),
+        metadataValidator: any ReleaseRunMetadataValidating = LiveReleaseRunMetadataValidator(),
+        screenshotsValidator: any ReleaseRunScreenshotsValidating = LiveReleaseRunScreenshotsValidator()
     ) {
         self.runner = runner
         self.releaseChecker = releaseChecker
         self.releaseInitEngine = releaseInitEngine
+        self.metadataValidator = metadataValidator
+        self.screenshotsValidator = screenshotsValidator
     }
 
     public func run(request: ReleaseRunRequest) throws -> ReleaseRunResult {
@@ -127,7 +210,11 @@ public struct ReleaseRunEngine: Sendable {
             profile: request.profile,
             environment: request.environment
         )
-        let sanitizedEnvironment = effectiveEnvironment
+        let commandEnvironment = makeCommandEnvironment(
+            from: effectiveEnvironment,
+            releasePolicy: request.releasePolicy
+        )
+        let sanitizedEnvironment = commandEnvironment
         let scheme = ProjectBuildSupport.resolveBuildScheme(
             projectRoot: root,
             profileName: request.profile.name
@@ -138,7 +225,8 @@ public struct ReleaseRunEngine: Sendable {
         let ipaFileName = "\(AppRegistrationSupport.slug(scheme, fallback: "app")).ipa"
         let ipaPath = buildOutputDir.appending(path: ipaFileName)
         let artifactList = bundle.artifacts + [ipaPath.path(percentEncoded: false)]
-        let signingMode: ReleaseCheckMode = request.allowSigningWrite ? .syncCerts : .readonlyCerts
+        let policySigningMode: ReleaseCheckMode = request.releasePolicy.signingMode == .syncCerts ? .syncCerts : .readonlyCerts
+        let signingMode: ReleaseCheckMode = request.allowSigningWrite ? .syncCerts : policySigningMode
         let uploadStep = uploadStep(for: request.stage)
         let resumeState = resumableUploadState(
             projectRoot: root,
@@ -164,12 +252,158 @@ public struct ReleaseRunEngine: Sendable {
             status: "running",
             summary: "release-run started (\(request.stage.rawValue))",
             records: records,
-            nextStep: .releaseInit,
+            nextStep: firstStep(for: request),
             failedStep: nil,
             failureCode: nil,
             artifactDirectory: bundle.directory.path(percentEncoded: false),
             ipaPath: resumeState?.ipaPath
         )
+
+        if signingMode == .syncCerts, !request.allowSigningWrite {
+            throw try fail(
+                bundle: bundle,
+                projectRoot: root,
+                records: &records,
+                logLines: &logLines,
+                stage: request.stage,
+                signingMode: signingMode,
+                step: .releaseCheck,
+                classification: .preflight,
+                summary: "release policy defaultSigningMode=sync-certs requires --allow-signing-write",
+                exitCode: 1,
+                ipaPath: ipaPath.path(percentEncoded: false),
+                artifacts: artifactList
+            )
+        }
+
+        if shouldRunMetadataPreflight(for: request) {
+            do {
+                let localeSummary = try metadataLocalePreflightSummary(for: request)
+                let validationSummary: String?
+                if request.releasePolicy.submitRequirements.metadataValidation {
+                    validationSummary = try metadataValidator.validate(
+                        projectRoot: root,
+                        profile: request.profile,
+                        environment: effectiveEnvironment
+                    )
+                } else {
+                    validationSummary = nil
+                }
+                let summary = [localeSummary, validationSummary]
+                    .compactMap { $0 }
+                    .joined(separator: "; ")
+                let record = StepRecord(
+                    step: .metadataValidate,
+                    classification: .preflight,
+                    status: "success",
+                    command: nil,
+                    exitCode: 0,
+                    summary: summary
+                )
+                records.append(record)
+                logLines += logEntry(for: record)
+                syncState(
+                    projectRoot: root,
+                    stage: request.stage,
+                    signingMode: signingMode,
+                    status: "running",
+                    summary: summary,
+                    records: records,
+                    nextStep: request.releasePolicy.submitRequirements.screenshotsValidation ? .screenshotsValidate : .releaseInit,
+                    failedStep: nil,
+                    failureCode: nil,
+                    artifactDirectory: bundle.directory.path(percentEncoded: false),
+                    ipaPath: resumeState?.ipaPath
+                )
+            } catch let error as ReleaseRunValidationFailure {
+                throw try fail(
+                    bundle: bundle,
+                    projectRoot: root,
+                    records: &records,
+                    logLines: &logLines,
+                    stage: request.stage,
+                    signingMode: signingMode,
+                    step: .metadataValidate,
+                    classification: .preflight,
+                    summary: error.summary,
+                    exitCode: 1,
+                    ipaPath: ipaPath.path(percentEncoded: false),
+                    artifacts: artifactList
+                )
+            }
+        }
+
+        if request.stage == .submit, request.releasePolicy.submitRequirements.screenshotsValidation {
+            guard let screenshotPlanPath = request.screenshotPlanPath,
+                  let screenshotPlan = request.screenshotPlan else {
+                throw try fail(
+                    bundle: bundle,
+                    projectRoot: root,
+                    records: &records,
+                    logLines: &logLines,
+                    stage: request.stage,
+                    signingMode: signingMode,
+                    step: .screenshotsValidate,
+                    classification: .preflight,
+                    summary: "release policy requires screenshots validation before submit",
+                    exitCode: 1,
+                    ipaPath: ipaPath.path(percentEncoded: false),
+                    artifacts: artifactList
+                )
+            }
+            do {
+                let localeSummary = try screenshotsLocalePreflightSummary(
+                    requiredLocales: request.releasePolicy.requiredLocales,
+                    plan: screenshotPlan
+                )
+                let validationSummary = try screenshotsValidator.validate(
+                    projectRoot: root,
+                    planPath: screenshotPlanPath,
+                    plan: screenshotPlan
+                )
+                let summary = [localeSummary, validationSummary]
+                    .compactMap { $0 }
+                    .joined(separator: "; ")
+                let record = StepRecord(
+                    step: .screenshotsValidate,
+                    classification: .preflight,
+                    status: "success",
+                    command: nil,
+                    exitCode: 0,
+                    summary: summary
+                )
+                records.append(record)
+                logLines += logEntry(for: record)
+                syncState(
+                    projectRoot: root,
+                    stage: request.stage,
+                    signingMode: signingMode,
+                    status: "running",
+                    summary: summary,
+                    records: records,
+                    nextStep: .releaseInit,
+                    failedStep: nil,
+                    failureCode: nil,
+                    artifactDirectory: bundle.directory.path(percentEncoded: false),
+                    ipaPath: resumeState?.ipaPath
+                )
+            } catch let error as ReleaseRunValidationFailure {
+                throw try fail(
+                    bundle: bundle,
+                    projectRoot: root,
+                    records: &records,
+                    logLines: &logLines,
+                    stage: request.stage,
+                    signingMode: signingMode,
+                    step: .screenshotsValidate,
+                    classification: .preflight,
+                    summary: error.summary,
+                    exitCode: 1,
+                    ipaPath: ipaPath.path(percentEncoded: false),
+                    artifacts: artifactList
+                )
+            }
+        }
 
         do {
             _ = try releaseInitEngine.releaseInit(
@@ -274,8 +508,6 @@ public struct ReleaseRunEngine: Sendable {
             }
             throw failure
         }
-
-        let commandEnvironment = makeCommandEnvironment(from: effectiveEnvironment)
         if let resumeState, let uploadStep {
             let resumeIPAPath = resumeState.ipaPath ?? ipaPath.path(percentEncoded: false)
             let reusedIPARecord = StepRecord(
@@ -683,6 +915,18 @@ private extension ReleaseRunEngine {
         let successSummary: String
     }
 
+    func firstStep(for request: ReleaseRunRequest) -> ReleaseRunStep {
+        if shouldRunMetadataPreflight(for: request) {
+            return .metadataValidate
+        }
+        if request.stage == .submit {
+            if request.releasePolicy.submitRequirements.screenshotsValidation {
+                return .screenshotsValidate
+            }
+        }
+        return .releaseInit
+    }
+
     func uploadStep(for stage: ReleaseRunStage) -> UploadStep? {
         switch stage {
         case .build:
@@ -722,12 +966,55 @@ private extension ReleaseRunEngine {
         }
     }
 
-    func makeCommandEnvironment(from environment: [String: String]) -> [String: String] {
+    func shouldRunMetadataPreflight(for request: ReleaseRunRequest) -> Bool {
+        request.stage == .submit
+            && (
+                request.releasePolicy.submitRequirements.metadataValidation
+                || !request.releasePolicy.requiredLocales.isEmpty
+            )
+    }
+
+    func metadataLocalePreflightSummary(for request: ReleaseRunRequest) throws -> String? {
+        let requiredLocales = request.releasePolicy.requiredLocales
+        guard !requiredLocales.isEmpty else { return nil }
+
+        let primaryLanguage = request.profile.release.primaryLanguage
+        guard requiredLocales.contains(primaryLanguage) else {
+            throw ReleaseRunValidationFailure(
+                summary: "release policy requiredLocales must include profile primaryLanguage \(primaryLanguage)"
+            )
+        }
+
+        return "release policy locale gate passed for primary language \(primaryLanguage)"
+    }
+
+    func screenshotsLocalePreflightSummary(
+        requiredLocales: [String],
+        plan: ScreenshotPlan
+    ) throws -> String? {
+        guard !requiredLocales.isEmpty else { return nil }
+
+        let availableLocales = Set(plan.locales.map(\.locale))
+        let missingLocales = requiredLocales.filter { !availableLocales.contains($0) }
+        guard missingLocales.isEmpty else {
+            throw ReleaseRunValidationFailure(
+                summary: "release policy requiredLocales missing from screenshots plan: \(missingLocales.joined(separator: ", "))"
+            )
+        }
+
+        return "release policy locale gate passed for screenshots locales \(requiredLocales.joined(separator: ", "))"
+    }
+
+    func makeCommandEnvironment(
+        from environment: [String: String],
+        releasePolicy: ReleasePolicy
+    ) -> [String: String] {
         var merged = environment
         merged["FASTLANE_DISABLE_COLORS"] = "1"
         merged["FASTLANE_SKIP_UPDATE_CHECK"] = "1"
         merged["FASTLANE_HIDE_TIMESTAMP"] = "1"
         merged["CI"] = "1"
+        merged["BOS_RELEASE_AUTOMATION"] = releasePolicy.automationMode.rawValue
         return merged
     }
 

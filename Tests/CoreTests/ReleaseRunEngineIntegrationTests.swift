@@ -300,6 +300,88 @@ struct ReleaseRunEngineIntegrationTests {
         #expect(uploadEnvironment["IPA_PATH"]?.hasSuffix("daycraftapp.ipa") == true)
     }
 
+    @Test func releaseRunRespectsPolicyReleaseAutomationInFastlaneEnvironment() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeBootstrapStateFixture(root: root)
+
+        let runner = RecordingRunner(
+            scriptedResults: [
+                ReleaseRunCommandResult(exitCode: 0),
+                ReleaseRunCommandResult(exitCode: 0),
+                ReleaseRunCommandResult(exitCode: 0),
+                ReleaseRunCommandResult(exitCode: 0)
+            ]
+        )
+        let releaseChecker = StubReleaseChecker(result: .success(.init(
+            artifacts: [],
+            summary: "Release check passed (readonly-certs)",
+            mode: .readonlyCerts,
+            failureCode: nil,
+            failedStep: nil
+        )))
+        let engine = ReleaseRunEngine(runner: runner, releaseChecker: releaseChecker)
+
+        _ = try engine.run(
+            request: ReleaseRunRequest(
+                projectRoot: root,
+                blueprint: try makeBlueprint(),
+                profile: try makeProfile(name: "daycraft"),
+                environment: requiredEnvironment(),
+                stage: .submit,
+                releasePolicy: try makeReleasePolicy(
+                    metadataValidation: false,
+                    screenshotsValidation: false,
+                    releaseAutomation: "phased"
+                )
+            )
+        )
+
+        let submitEnvironment = try #require(runner.environments.last)
+        #expect(submitEnvironment["BOS_RELEASE_AUTOMATION"] == "phased")
+    }
+
+    @Test func releaseRunFailsWhenPolicyDefaultsToSyncCertsWithoutExplicitWriteAllowance() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeBootstrapStateFixture(root: root)
+
+        let runner = RecordingRunner(scriptedResults: [])
+        let releaseChecker = StubReleaseChecker(result: .success(.init(
+            artifacts: [],
+            summary: "Release check passed (sync-certs)",
+            mode: .syncCerts,
+            failureCode: nil,
+            failedStep: nil
+        )))
+        let engine = ReleaseRunEngine(runner: runner, releaseChecker: releaseChecker)
+
+        do {
+            _ = try engine.run(
+                request: ReleaseRunRequest(
+                    projectRoot: root,
+                    blueprint: try makeBlueprint(),
+                    profile: try makeProfile(name: "daycraft"),
+                    environment: requiredEnvironment(),
+                    stage: .beta,
+                    releasePolicy: try makeReleasePolicy(
+                        metadataValidation: false,
+                        screenshotsValidation: false,
+                        defaultSigningMode: "sync-certs"
+                    )
+                )
+            )
+            Issue.record("expected ReleaseRunEngineError.failed")
+        } catch ReleaseRunEngineError.failed(let classification, let step, let summary, _, _) {
+            #expect(classification == .preflight)
+            #expect(step == .releaseCheck)
+            #expect(summary == "release policy defaultSigningMode=sync-certs requires --allow-signing-write")
+        }
+
+        #expect(releaseChecker.modes.isEmpty)
+        #expect(runner.commands.isEmpty)
+    }
+
     @Test func releaseRunBetaStageClassifiesUploadFailureAndKeepsResumeStep() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -428,6 +510,206 @@ struct ReleaseRunEngineIntegrationTests {
             ["fastlane", "ios", "build"],
             ["fastlane", "ios", "submit"]
         ])
+    }
+
+    @Test func releaseRunSubmitStageStopsBeforeBuildWhenMetadataValidationFails() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeBootstrapStateFixture(root: root)
+
+        let runner = RecordingRunner(scriptedResults: [])
+        let releaseChecker = StubReleaseChecker(result: .success(.init(
+            artifacts: [],
+            summary: "Release check passed (readonly-certs)",
+            mode: .readonlyCerts,
+            failureCode: nil,
+            failedStep: nil
+        )))
+        let metadataValidator = StubMetadataValidator(result: .failure(.init(summary: "metadata validation failed")))
+        let screenshotsValidator = StubScreenshotsValidator(result: .success("screenshots validate passed"))
+        let engine = ReleaseRunEngine(
+            runner: runner,
+            releaseChecker: releaseChecker,
+            metadataValidator: metadataValidator,
+            screenshotsValidator: screenshotsValidator
+        )
+
+        do {
+            _ = try engine.run(
+                request: ReleaseRunRequest(
+                    projectRoot: root,
+                    blueprint: try makeBlueprint(),
+                    profile: try makeProfile(name: "daycraft"),
+                    environment: requiredEnvironment(),
+                    stage: .submit,
+                    releasePolicy: try makeReleasePolicy(metadataValidation: true, screenshotsValidation: false)
+                )
+            )
+            Issue.record("expected ReleaseRunEngineError.failed")
+        } catch ReleaseRunEngineError.failed(let classification, let step, let summary, _, _) {
+            #expect(classification == .preflight)
+            #expect(step == .metadataValidate)
+            #expect(summary == "metadata validation failed")
+        }
+
+        #expect(metadataValidator.calls == 1)
+        #expect(screenshotsValidator.calls == 0)
+        #expect(releaseChecker.modes.isEmpty)
+        #expect(runner.commands.isEmpty)
+    }
+
+    @Test func releaseRunSubmitStageFailsWhenRequiredLocalesExcludePrimaryLanguage() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeBootstrapStateFixture(root: root)
+
+        let runner = RecordingRunner(scriptedResults: [])
+        let releaseChecker = StubReleaseChecker(result: .success(.init(
+            artifacts: [],
+            summary: "Release check passed (readonly-certs)",
+            mode: .readonlyCerts,
+            failureCode: nil,
+            failedStep: nil
+        )))
+        let metadataValidator = StubMetadataValidator(result: .success("metadata validation passed"))
+        let engine = ReleaseRunEngine(
+            runner: runner,
+            releaseChecker: releaseChecker,
+            metadataValidator: metadataValidator
+        )
+
+        do {
+            _ = try engine.run(
+                request: ReleaseRunRequest(
+                    projectRoot: root,
+                    blueprint: try makeBlueprint(),
+                    profile: try makeProfile(name: "daycraft"),
+                    environment: requiredEnvironment(),
+                    stage: .submit,
+                    releasePolicy: try makeReleasePolicy(
+                        metadataValidation: false,
+                        screenshotsValidation: false,
+                        requiredLocales: ["ko-KR"]
+                    )
+                )
+            )
+            Issue.record("expected ReleaseRunEngineError.failed")
+        } catch ReleaseRunEngineError.failed(let classification, let step, let summary, _, _) {
+            #expect(classification == .preflight)
+            #expect(step == .metadataValidate)
+            #expect(summary == "release policy requiredLocales must include profile primaryLanguage en-US")
+        }
+
+        #expect(metadataValidator.calls == 0)
+        #expect(releaseChecker.modes.isEmpty)
+        #expect(runner.commands.isEmpty)
+    }
+
+    @Test func releaseRunSubmitStageValidatesScreenshotsBeforeReleaseInit() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeBootstrapStateFixture(root: root)
+
+        let runner = RecordingRunner(
+            scriptedResults: [
+                ReleaseRunCommandResult(exitCode: 0),
+                ReleaseRunCommandResult(exitCode: 0),
+                ReleaseRunCommandResult(exitCode: 0),
+                ReleaseRunCommandResult(exitCode: 0)
+            ]
+        )
+        let releaseChecker = StubReleaseChecker(result: .success(.init(
+            artifacts: [],
+            summary: "Release check passed (readonly-certs)",
+            mode: .readonlyCerts,
+            failureCode: nil,
+            failedStep: nil
+        )))
+        let metadataValidator = StubMetadataValidator(result: .success("metadata validation passed"))
+        let screenshotsValidator = StubScreenshotsValidator(result: .success("screenshots validate passed"))
+        let engine = ReleaseRunEngine(
+            runner: runner,
+            releaseChecker: releaseChecker,
+            metadataValidator: metadataValidator,
+            screenshotsValidator: screenshotsValidator
+        )
+        let screenshotPlanPath = root.appending(path: "config/screenshots.plan.yaml")
+        let screenshotPlan = try makeScreenshotPlan()
+
+        _ = try engine.run(
+            request: ReleaseRunRequest(
+                projectRoot: root,
+                blueprint: try makeBlueprint(),
+                profile: try makeProfile(name: "daycraft"),
+                environment: requiredEnvironment(),
+                stage: .submit,
+                releasePolicy: try makeReleasePolicy(metadataValidation: true, screenshotsValidation: true),
+                screenshotPlanPath: screenshotPlanPath,
+                screenshotPlan: screenshotPlan
+            )
+        )
+
+        #expect(metadataValidator.calls == 1)
+        #expect(screenshotsValidator.calls == 1)
+        #expect(screenshotsValidator.planPaths == [screenshotPlanPath.path(percentEncoded: false)])
+        #expect(releaseChecker.modes == [.readonlyCerts])
+        #expect(runner.commands == [
+            ["tuist", "install"],
+            ["tuist", "generate", "--no-open"],
+            ["fastlane", "ios", "build"],
+            ["fastlane", "ios", "submit"]
+        ])
+    }
+
+    @Test func releaseRunSubmitStageFailsWhenScreenshotPlanMissesRequiredLocale() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeBootstrapStateFixture(root: root)
+
+        let runner = RecordingRunner(scriptedResults: [])
+        let releaseChecker = StubReleaseChecker(result: .success(.init(
+            artifacts: [],
+            summary: "Release check passed (readonly-certs)",
+            mode: .readonlyCerts,
+            failureCode: nil,
+            failedStep: nil
+        )))
+        let screenshotsValidator = StubScreenshotsValidator(result: .success("screenshots validate passed"))
+        let engine = ReleaseRunEngine(
+            runner: runner,
+            releaseChecker: releaseChecker,
+            screenshotsValidator: screenshotsValidator
+        )
+        let screenshotPlanPath = root.appending(path: "config/screenshots.plan.yaml")
+        let screenshotPlan = try makeScreenshotPlan()
+
+        do {
+            _ = try engine.run(
+                request: ReleaseRunRequest(
+                    projectRoot: root,
+                    blueprint: try makeBlueprint(),
+                    profile: try makeProfile(name: "daycraft"),
+                    environment: requiredEnvironment(),
+                    stage: .submit,
+                    releasePolicy: try makeReleasePolicy(
+                        metadataValidation: false,
+                        screenshotsValidation: true,
+                        requiredLocales: ["en-US", "ko-KR"]
+                    ),
+                    screenshotPlanPath: screenshotPlanPath,
+                    screenshotPlan: screenshotPlan
+                )
+            )
+            Issue.record("expected ReleaseRunEngineError.failed")
+        } catch ReleaseRunEngineError.failed(let classification, let step, let summary, _, _) {
+            #expect(classification == .preflight)
+            #expect(step == .screenshotsValidate)
+            #expect(summary == "release policy requiredLocales missing from screenshots plan: ko-KR")
+        }
+
+        #expect(screenshotsValidator.calls == 0)
+        #expect(releaseChecker.modes.isEmpty)
+        #expect(runner.commands.isEmpty)
     }
 
     @Test func releaseRunSubmitFailureRedactsSecretsInArtifacts() throws {
@@ -575,6 +857,47 @@ private extension ReleaseRunEngineIntegrationTests {
         }
     }
 
+    final class StubMetadataValidator: ReleaseRunMetadataValidating {
+        private let result: Result<String, ReleaseRunValidationFailure>
+        private let lock = OSAllocatedUnfairLock(initialState: 0)
+
+        var calls: Int { lock.withLock { $0 } }
+
+        init(result: Result<String, ReleaseRunValidationFailure>) {
+            self.result = result
+        }
+
+        func validate(projectRoot: URL, profile: Profile, environment: [String : String]) throws -> String {
+            lock.withLock { $0 += 1 }
+            return try result.get()
+        }
+    }
+
+    final class StubScreenshotsValidator: ReleaseRunScreenshotsValidating {
+        private struct State {
+            var calls = 0
+            var planPaths: [String] = []
+        }
+
+        private let result: Result<String, ReleaseRunValidationFailure>
+        private let lock = OSAllocatedUnfairLock(initialState: State())
+
+        var calls: Int { lock.withLock { $0.calls } }
+        var planPaths: [String] { lock.withLock { $0.planPaths } }
+
+        init(result: Result<String, ReleaseRunValidationFailure>) {
+            self.result = result
+        }
+
+        func validate(projectRoot: URL, planPath: URL, plan: ScreenshotPlan) throws -> String {
+            lock.withLock {
+                $0.calls += 1
+                $0.planPaths.append(planPath.path(percentEncoded: false))
+            }
+            return try result.get()
+        }
+    }
+
     func makeTempDir() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("bos-release-run-\(ProcessInfo.processInfo.globallyUniqueString)", isDirectory: true)
@@ -630,6 +953,53 @@ private extension ReleaseRunEngineIntegrationTests {
                     companyName: "Axiom Orient"
                 )
             )
+        )
+    }
+
+    func makeReleasePolicy(
+        metadataValidation: Bool,
+        screenshotsValidation: Bool,
+        defaultSigningMode: String = "readonly-certs",
+        releaseAutomation: String = "manual",
+        requiredLocales: [String] = ["en-US"]
+    ) throws -> ReleasePolicy {
+        try ReleasePolicy(
+            submitRequirements: .init(
+                metadataValidation: metadataValidation,
+                screenshotsValidation: screenshotsValidation
+            ),
+            defaultSigningMode: defaultSigningMode,
+            releaseAutomation: releaseAutomation,
+            requiredLocales: requiredLocales
+        )
+    }
+
+    func makeScreenshotPlan() throws -> ScreenshotPlan {
+        try ScreenshotPlan(
+            defaultLocale: "en-US",
+            locales: [
+                try .init(locale: "en-US", displayName: "English (US)")
+            ],
+            devices: [
+                try .init(
+                    id: "iphone-69",
+                    name: "iPhone 16 Pro Max",
+                    family: "iphone",
+                    platform: "simulator",
+                    orientation: "portrait",
+                    pixelSize: try .init(width: 1320, height: 2868)
+                )
+            ],
+            shots: [
+                try .init(
+                    id: "today-home",
+                    screenID: "SCR_TODAY_HOME",
+                    locales: ["en-US"],
+                    devices: ["iphone-69"],
+                    outputName: "today-home"
+                )
+            ],
+            export: try .init(rootDirectory: "screenshots/export", format: "png", includeFrame: false)
         )
     }
 
